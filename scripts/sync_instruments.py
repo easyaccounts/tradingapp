@@ -273,6 +273,42 @@ def update_env_file(tokens: List[int]):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] ✓ Updated .env with {len(tokens):,} tokens")
 
 
+def mark_instruments_active(tokens: List[int]) -> int:
+    """Mark filtered instruments as active in database"""
+    if not tokens or not DATABASE_URL:
+        return 0
+    
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Marking {len(tokens):,} instruments as active in DB...")
+    
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # First, mark all as inactive
+        cursor.execute("UPDATE instruments SET is_active = FALSE")
+        
+        # Then mark filtered ones as active
+        if tokens:
+            placeholders = ','.join(['%s'] * len(tokens))
+            cursor.execute(f"""
+                UPDATE instruments 
+                SET is_active = TRUE 
+                WHERE instrument_token IN ({placeholders})
+            """, tokens)
+        
+        conn.commit()
+        affected = cursor.rowcount
+        cursor.close()
+        conn.close()
+        
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✓ Marked {affected:,} instruments as active")
+        return affected
+    
+    except Exception as e:
+        print(f"  ✗ Failed to mark active: {e}")
+        return 0
+
+
 def print_summary(instruments: List[Dict], filter_type: str, tokens: List[int]):
     """Print execution summary"""
     print("\n" + "="*70)
@@ -327,6 +363,11 @@ def main():
     
     # Filter and update .env (if filter specified)
     tokens = filter_instruments(instruments, args.filter)
+    
+    # Mark as active in database
+    active_count = mark_instruments_active(tokens)
+    
+    # Update .env for backward compatibility
     update_env_file(tokens)
     
     # Summary

@@ -101,15 +101,15 @@ def main():
     
     while restart_count < max_restarts:
         try:
-            # Initialize Redis client for instruments cache
+            # Initialize Redis client for fallback
             logger.info("connecting_to_redis")
             redis_client = redis.from_url(config.REDIS_URL, decode_responses=False)
             redis_client.ping()
             logger.info("redis_connected")
             
-            # Load instruments cache
-            logger.info("loading_instruments_cache")
-            instruments_cache = load_instruments_cache(redis_client)
+            # Load instruments cache from database
+            logger.info("loading_instruments_cache_from_database")
+            instruments_cache = load_instruments_cache(config.DATABASE_URL, redis_client)
             
             if not instruments_cache:
                 logger.warning(

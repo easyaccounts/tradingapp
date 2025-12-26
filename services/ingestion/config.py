@@ -6,9 +6,13 @@ Loads and validates environment variables
 import os
 from typing import List
 from dotenv import load_dotenv
+import psycopg2
+import structlog
 
 # Load environment variables from .env file
 load_dotenv()
+
+logger = structlog.get_logger()
 
 
 class Config:
@@ -24,9 +28,11 @@ class Config:
         # KiteConnect
         self.KITE_API_KEY: str = self._get_required("KITE_API_KEY")
         
-        # Instruments to track (comma-separated)
-        instruments_str = self._get_required("INSTRUMENTS")
-        self.INSTRUMENTS: List[int] = self._parse_instruments(instruments_str)
+        # Database (for instruments)
+        self.DATABASE_URL: str = self._get_required("DATABASE_URL")
+        
+        # Instruments to track - loaded from database
+        self.INSTRUMENTS: List[int] = self._load_instruments_from_db()
         
         # Logging
         self.LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -44,17 +50,51 @@ class Config:
             )
         return value
     
-    def _parse_instruments(self, instruments_str: str) -> List[int]:
-        """Parse comma-separated instrument tokens"""
+    def _load_instruments_from_db(self) -> List[int]:
+        """Load active instruments from database"""
         try:
-            tokens = [int(token.strip()) for token in instruments_str.split(",") if token.strip()]
+            conn = psycopg2.connect(self.DATABASE_URL)
+            cursor = conn.cursor()
+            
+            # Query active instruments
+            cursor.execute("""
+                SELECT instrument_token 
+                FROM instruments 
+                WHERE is_active = TRUE
+                ORDER BY instrument_token
+            """)
+            
+            tokens = [row[0] for row in cursor.fetchall()]
+            
+            cursor.close()
+            conn.close()
+            
             if not tokens:
-                raise ValueError("No instruments specified")
+                logger.warning(
+                    "no_active_instruments",
+                    message="No instruments marked as active in database. "
+                           "Run: UPDATE instruments SET is_active = TRUE WHERE name = 'NIFTY' AND segment IN ('NFO-OPT', 'NFO-FUT')"
+                )
+                raise ValueError("No active instruments found in database")
+            
+            logger.info(
+                "instruments_loaded_from_db",
+                count=len(tokens)
+            )
+            
             return tokens
-        except ValueError as e:
-            raise ValueError(
-                f"Invalid INSTRUMENTS format: {instruments_str}. "
-                f"Expected comma-separated integers. Error: {e}"
+            
+        except psycopg2.Error as e:
+            logger.error("database_connection_failed", error=str(e))
+            # Fallback to .env if DB fails
+            instruments_str = os.getenv("INSTRUMENTS", "")
+            if instruments_str:
+                logger.warning("falling_back_to_env_instruments")
+                tokens = [int(t.strip()) for t in instruments_str.split(",") if t.strip()]
+                return tokens
+            raise EnvironmentError(
+                f"Failed to load instruments from database and no INSTRUMENTS in .env. "
+                f"Database error: {e}"
             )
     
     def _validate(self):

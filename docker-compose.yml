@@ -141,7 +141,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       RABBITMQ_URL: ${RABBITMQ_URL}
       KITE_API_KEY: ${KITE_API_KEY}
-      INSTRUMENTS: ${INSTRUMENTS}
+      DATABASE_URL: ${DATABASE_URL}
       LOG_LEVEL: ${LOG_LEVEL}
     volumes:
       - tokendata:/app/data

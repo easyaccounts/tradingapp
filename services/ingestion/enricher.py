@@ -5,6 +5,7 @@ Adds instrument metadata and calculates derived metrics
 """
 
 import redis
+import psycopg2
 import structlog
 from typing import Dict, Optional, List
 from datetime import datetime
@@ -13,85 +14,114 @@ from models import KiteTick, EnrichedTick, InstrumentInfo
 logger = structlog.get_logger()
 
 
-def load_instruments_cache(redis_client: redis.Redis) -> Dict[int, InstrumentInfo]:
+def load_instruments_cache(database_url: str, redis_client: Optional[redis.Redis] = None) -> Dict[int, InstrumentInfo]:
     """
-    Load instruments metadata from Redis into memory cache
+    Load instruments metadata from Postgres (with optional Redis fallback)
+    
+    Primary source: PostgreSQL
+    Fallback: Redis (if provided and DB fails)
     
     Args:
-        redis_client: Redis client instance
+        database_url: PostgreSQL connection URL
+        redis_client: Optional Redis client for fallback
     
     Returns:
         Dict mapping instrument_token to InstrumentInfo
     """
     instruments_cache = {}
     
+    # Try loading from Postgres first
     try:
-        # Get all instrument keys from Redis
-        # Expected format: instrument:{token} -> hash with fields
-        pattern = "instrument:*"
-        keys = redis_client.keys(pattern)
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
         
-        logger.info("loading_instruments_cache", total_keys=len(keys))
+        cursor.execute("""
+            SELECT 
+                instrument_token, trading_symbol, exchange, segment,
+                instrument_type, name, expiry, strike, tick_size, lot_size
+            FROM instruments
+            WHERE is_active = TRUE
+        """)
         
-        for key in keys:
+        rows = cursor.fetchall()
+        
+        logger.info("loading_instruments_from_db", total_instruments=len(rows))
+        
+        for row in rows:
             try:
-                # Extract token from key
-                token_str = key.decode('utf-8').split(':')[1]
-                token = int(token_str)
-                
-                # Get instrument data
-                data = redis_client.hgetall(key)
-                
-                if data:
-                    # Decode bytes to strings
-                    decoded_data = {
-                        k.decode('utf-8'): v.decode('utf-8') 
-                        for k, v in data.items()
-                    }
-                    
-                    # Create InstrumentInfo with safe parsing
-                    try:
-                        strike = float(decoded_data['strike']) if decoded_data.get('strike') else None
-                    except (ValueError, KeyError):
-                        strike = None
-                    
-                    try:
-                        lot_size = int(decoded_data['lot_size']) if decoded_data.get('lot_size') else None
-                    except (ValueError, KeyError):
-                        lot_size = None
-                    
-                    try:
-                        tick_size = float(decoded_data['tick_size']) if decoded_data.get('tick_size') else None
-                    except (ValueError, KeyError):
-                        tick_size = None
-                    
-                    instrument = InstrumentInfo(
-                        instrument_token=token,
-                        trading_symbol=decoded_data.get('tradingsymbol', ''),
-                        exchange=decoded_data.get('exchange', ''),
-                        instrument_type=decoded_data.get('instrument_type'),
-                        expiry=decoded_data.get('expiry'),
-                        strike=strike,
-                        lot_size=lot_size,
-                        tick_size=tick_size
-                    )
-                    
-                    instruments_cache[token] = instrument
-            
+                instrument = InstrumentInfo(
+                    instrument_token=row[0],
+                    trading_symbol=row[1],
+                    exchange=row[2],
+                    instrument_type=row[4],
+                    expiry=row[6],
+                    strike=float(row[7]) if row[7] else None,
+                    lot_size=int(row[9]) if row[9] else None,
+                    tick_size=float(row[8]) if row[8] else None
+                )
+                instruments_cache[row[0]] = instrument
             except Exception as e:
-                logger.error("instrument_load_failed", key=key, error=str(e))
+                logger.error("instrument_parse_failed", row=row, error=str(e))
                 continue
         
+        cursor.close()
+        conn.close()
+        
         logger.info(
-            "instruments_cache_loaded",
+            "instruments_cache_loaded_from_db",
             total_instruments=len(instruments_cache)
         )
         
         return instruments_cache
     
-    except Exception as e:
-        logger.error("cache_load_failed", error=str(e))
-        return {}
+    except psycopg2.Error as db_error:
+        logger.error("db_load_failed", error=str(db_error))
+        
+        # Fallback to Redis if database fails
+        if redis_client:
+            logger.warning("falling_back_to_redis_cache")
+            try:
+                pattern = "instrument:*"
+                keys = redis_client.keys(pattern)
+                
+                logger.info("loading_from_redis_fallback", total_keys=len(keys))
+                
+                for key in keys:
+                    try:
+                        token_str = key.decode('utf-8').split(':')[1]
+                        token = int(token_str)
+                        data = redis_client.hgetall(key)
+                        
+                        if data:
+                            decoded_data = {
+                                k.decode('utf-8'): v.decode('utf-8') 
+                                for k, v in data.items()
+                            }
+                            
+                            instrument = InstrumentInfo(
+                                instrument_token=token,
+                                trading_symbol=decoded_data.get('tradingsymbol', ''),
+                                exchange=decoded_data.get('exchange', ''),
+                                instrument_type=decoded_data.get('instrument_type'),
+                                expiry=decoded_data.get('expiry'),
+                                strike=float(decoded_data['strike']) if decoded_data.get('strike') else None,
+                                lot_size=int(decoded_data['lot_size']) if decoded_data.get('lot_size') else None,
+                                tick_size=float(decoded_data['tick_size']) if decoded_data.get('tick_size') else None
+                            )
+                            instruments_cache[token] = instrument
+                    except Exception as e:
+                        logger.error("redis_instrument_load_failed", key=key, error=str(e))
+                        continue
+                
+                logger.info("instruments_loaded_from_redis_fallback", count=len(instruments_cache))
+                return instruments_cache
+            
+            except Exception as redis_error:
+                logger.error("redis_fallback_failed", error=str(redis_error))
+                return {}
+        else:
+            logger.error("no_fallback_available", message="Database failed and no Redis client provided")
+            return {}
 
 
 def enrich_tick(
@@ -286,3 +316,4 @@ def _calculate_change_percent(change: Optional[float], close: Optional[float]) -
     if change is not None and close is not None and close > 0:
         return round((change / close) * 100, 4)
     return None
+
