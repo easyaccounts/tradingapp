@@ -49,16 +49,31 @@ def load_instruments_cache(redis_client: redis.Redis) -> Dict[int, InstrumentInf
                         for k, v in data.items()
                     }
                     
-                    # Create InstrumentInfo
+                    # Create InstrumentInfo with safe parsing
+                    try:
+                        strike = float(decoded_data['strike']) if decoded_data.get('strike') else None
+                    except (ValueError, KeyError):
+                        strike = None
+                    
+                    try:
+                        lot_size = int(decoded_data['lot_size']) if decoded_data.get('lot_size') else None
+                    except (ValueError, KeyError):
+                        lot_size = None
+                    
+                    try:
+                        tick_size = float(decoded_data['tick_size']) if decoded_data.get('tick_size') else None
+                    except (ValueError, KeyError):
+                        tick_size = None
+                    
                     instrument = InstrumentInfo(
                         instrument_token=token,
                         trading_symbol=decoded_data.get('tradingsymbol', ''),
                         exchange=decoded_data.get('exchange', ''),
                         instrument_type=decoded_data.get('instrument_type'),
                         expiry=decoded_data.get('expiry'),
-                        strike=float(decoded_data['strike']) if decoded_data.get('strike') else None,
-                        lot_size=int(decoded_data['lot_size']) if decoded_data.get('lot_size') else None,
-                        tick_size=float(decoded_data['tick_size']) if decoded_data.get('tick_size') else None
+                        strike=strike,
+                        lot_size=lot_size,
+                        tick_size=tick_size
                     )
                     
                     instruments_cache[token] = instrument
@@ -149,8 +164,8 @@ def enrich_tick(
     
     # Create enriched tick
     enriched = EnrichedTick(
-        # Timestamps
-        time=raw_tick.timestamp or datetime.now(),
+        # Timestamps (use UTC to avoid timezone issues)
+        time=raw_tick.timestamp or datetime.utcnow(),
         last_trade_time=raw_tick.last_trade_time,
         
         # Instrument identification

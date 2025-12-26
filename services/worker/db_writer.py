@@ -109,9 +109,12 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
                 elif isinstance(value, bool):
                     row_data.append('t' if value else 'f')
                 
-                # Handle timestamps
+                # Handle timestamps (could be datetime object or ISO string from JSON)
                 elif isinstance(value, datetime):
                     row_data.append(value.isoformat())
+                elif col in ['time', 'last_trade_time'] and isinstance(value, str):
+                    # Already a timestamp string from JSON serialization
+                    row_data.append(value)
                 
                 # Handle strings (escape tabs and newlines)
                 elif isinstance(value, str):
@@ -154,6 +157,15 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
         return rows_inserted
     
     except Exception as e:
+        # Ensure cleanup on error
+        try:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            if 'conn' in locals() and conn:
+                conn.close()
+        except:
+            pass
+        
         logger.error(
             "bulk_insert_failed",
             error=str(e),

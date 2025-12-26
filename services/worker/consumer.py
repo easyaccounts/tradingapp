@@ -55,14 +55,16 @@ def flush_batch():
     if not tick_batch:
         return
     
+    batch_to_flush = tick_batch.copy()
+    
     try:
         start_time = time.time()
-        batch_size = len(tick_batch)
+        batch_size = len(batch_to_flush)
         
         logger.info("flushing_batch", size=batch_size)
         
         # Insert to database
-        rows_inserted = bulk_insert_ticks(tick_batch)
+        rows_inserted = bulk_insert_ticks(batch_to_flush)
         
         elapsed = time.time() - start_time
         
@@ -73,15 +75,16 @@ def flush_batch():
             elapsed_seconds=round(elapsed, 2)
         )
         
-        # Clear batch
+        # Only clear batch after successful insert
         tick_batch = []
         last_flush_time = time.time()
         
     except Exception as e:
-        logger.error("batch_flush_failed", error=str(e), batch_size=len(tick_batch))
-        # Clear batch anyway to avoid infinite retry
+        logger.error("batch_flush_failed", error=str(e), batch_size=len(batch_to_flush))
+        # Clear batch to avoid infinite retry but log critical error
         tick_batch = []
         last_flush_time = time.time()
+        logger.critical("data_loss_potential", failed_batch_size=len(batch_to_flush))
 
 
 def process_message(ch, method, properties, body):
@@ -157,6 +160,16 @@ def main():
             
             connection = pika.BlockingConnection(parameters)
             channel = connection.channel()
+            
+            # Declare queue (idempotent - creates if doesn't exist)
+            channel.queue_declare(
+                queue=QUEUE_NAME,
+                durable=True,
+                arguments={
+                    'x-max-length': 1000000,
+                    'x-message-ttl': 86400000
+                }
+            )
             
             # Set QoS - prefetch messages
             channel.basic_qos(prefetch_count=PREFETCH_COUNT)
