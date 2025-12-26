@@ -3,6 +3,11 @@
 Update NIFTY Options and Futures Tokens in .env file
 Downloads instruments from Kite API and filters NFO-OPT and NFO-FUT NIFTY instruments
 Should be run weekly (every Wednesday) to refresh tokens
+
+⚠️  DEPRECATED: This script is being replaced by sync_instruments.py
+    The new script is more efficient and stores data in Postgres + Redis too.
+    
+    Migration: python scripts/sync_instruments.py --filter nifty
 """
 
 import os

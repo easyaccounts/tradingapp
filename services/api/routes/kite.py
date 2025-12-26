@@ -139,7 +139,7 @@ async def kite_callback(
         # Store access_token in file (persisted)
         write_token_to_file(access_token)
         
-        # Also store in Redis for backward compatibility (optional)
+        # Also store in Redis for scripts and caching
         try:
             redis_client.setex(
                 REDIS_TOKEN_KEY,
@@ -151,8 +151,10 @@ async def kite_callback(
                 TOKEN_EXPIRY_SECONDS,
                 str(data.get("user_id", "unknown"))
             )
-        except:
-            pass  # Redis is optional now
+            logger.info("Access token stored in Redis with 24h expiry")
+        except Exception as redis_error:
+            logger.warning(f"Failed to store token in Redis: {redis_error}")
+            # Redis is optional, continue anyway
         
         # Redirect to success page
         return RedirectResponse(url="/success.html", status_code=302)

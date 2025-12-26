@@ -3,6 +3,12 @@
 Update Instruments Script
 Downloads instrument master data from KiteConnect and loads into Redis & PostgreSQL
 
+⚠️  DEPRECATED: This script is being replaced by sync_instruments.py
+    The new script is more efficient (single HTTP call, no auth required)
+    and combines functionality of both update scripts.
+    
+    Migration: python scripts/sync_instruments.py --filter all
+
 Usage:
     python update_instruments.py
 
