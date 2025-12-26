@@ -37,20 +37,28 @@ INSTRUMENTS_URL = "https://api.kite.trade/instruments"
 
 # Database URLs - use localhost for host execution, docker names inside containers
 def get_database_url():
-    """Get DATABASE_URL with fallback to localhost"""
+    """Get DATABASE_URL with localhost replacement for host execution"""
     url = os.getenv("DATABASE_URL", "")
-    # If URL contains docker service names, replace with localhost
-    if "pgbouncer" in url or not url:
-        return "postgresql://tradinguser:tradingpassword@localhost:5432/tradingdb"
+    if not url:
+        return None
+    
+    # Replace docker service names with localhost when running from host
+    # pgbouncer:5432 -> localhost:6432 (pgbouncer exposed on 6432)
+    # timescaledb:5432 -> localhost:5432 (timescaledb exposed on 5432)
+    if "pgbouncer" in url:
+        url = url.replace("pgbouncer:5432", "localhost:6432")
+    elif "timescaledb" in url:
+        url = url.replace("timescaledb:5432", "localhost:5432")
+    
     return url
 
 def get_redis_url():
-    """Get REDIS_URL with fallback to localhost"""
-    url = os.getenv("REDIS_URL", "")
-    # If URL contains docker service names, replace with localhost
-    if "redis:" in url and "localhost" not in url:
-        return "redis://localhost:6379/0"
-    return url if url else "redis://localhost:6379/0"
+    """Get REDIS_URL with localhost replacement for host execution"""
+    url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    # Replace docker service name with localhost
+    if "redis:6379" in url:
+        url = url.replace("redis:6379", "localhost:6379")
+    return url
 
 REDIS_URL = get_redis_url()
 DATABASE_URL = get_database_url()
