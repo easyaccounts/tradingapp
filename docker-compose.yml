@@ -98,6 +98,8 @@ services:
       KITE_REDIRECT_URL: ${KITE_REDIRECT_URL}
       ENVIRONMENT: ${ENVIRONMENT}
       LOG_LEVEL: ${LOG_LEVEL}
+    volumes:
+      - tokendata:/app/data
     depends_on:
       pgbouncer:
         condition: service_started
@@ -141,6 +143,8 @@ services:
       KITE_API_KEY: ${KITE_API_KEY}
       INSTRUMENTS: ${INSTRUMENTS}
       LOG_LEVEL: ${LOG_LEVEL}
+    volumes:
+      - tokendata:/app/data
     depends_on:
       redis:
         condition: service_healthy
@@ -283,6 +287,8 @@ volumes:
   prometheusdata:
     driver: local
   grafanadata:
+    driver: local
+  tokendata:
     driver: local
 
 networks:

@@ -1,6 +1,6 @@
 """
 Kite Authentication Handler
-Retrieves and validates access token from Redis
+Retrieves and validates access token from file or Redis
 """
 
 import os
@@ -11,11 +11,25 @@ from typing import Optional
 logger = structlog.get_logger()
 
 REDIS_TOKEN_KEY = "kite_access_token"
+TOKEN_FILE_PATH = "/app/data/access_token.txt"
+
+
+def read_token_from_file() -> Optional[str]:
+    """Read access token from persistent file"""
+    try:
+        if os.path.exists(TOKEN_FILE_PATH):
+            with open(TOKEN_FILE_PATH, 'r') as f:
+                token = f.read().strip()
+            return token if token else None
+        return None
+    except Exception as e:
+        logger.error("failed_to_read_token_file", error=str(e))
+        return None
 
 
 def get_access_token(redis_url: str) -> str:
     """
-    Retrieve Kite access token from Redis
+    Retrieve Kite access token from file (primary) or Redis (fallback)
     
     Args:
         redis_url: Redis connection URL
@@ -24,9 +38,20 @@ def get_access_token(redis_url: str) -> str:
         str: Access token
     
     Raises:
-        Exception: If token not found or Redis connection fails
+        Exception: If token not found
     """
     try:
+        # Try reading from file first (primary source)
+        token = read_token_from_file()
+        
+        if token:
+            logger.info(
+                "access_token_retrieved_from_file",
+                token_length=len(token)
+            )
+            return token
+        
+        # Fallback to Redis
         redis_client = redis.from_url(redis_url, decode_responses=True)
         token = redis_client.get(REDIS_TOKEN_KEY)
         
@@ -35,7 +60,7 @@ def get_access_token(redis_url: str) -> str:
             protocol = "https" if os.getenv("ENVIRONMENT") == "production" else "http"
             logger.error("access_token_not_found", key=REDIS_TOKEN_KEY)
             raise Exception(
-                f"Kite access token not found in Redis (key: {REDIS_TOKEN_KEY}). "
+                f"Kite access token not found in file or Redis. "
                 f"Please authenticate via the web interface first: {protocol}://{domain}/"
             )
         
@@ -43,7 +68,7 @@ def get_access_token(redis_url: str) -> str:
         ttl = redis_client.ttl(REDIS_TOKEN_KEY)
         
         logger.info(
-            "access_token_retrieved",
+            "access_token_retrieved_from_redis",
             token_length=len(token),
             ttl_seconds=ttl,
             ttl_hours=round(ttl / 3600, 2)

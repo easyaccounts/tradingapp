@@ -1,10 +1,17 @@
 from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime, timedelta
 import asyncpg
+from redis import Redis
 import os
 from typing import Optional
 
 router = APIRouter()
+
+# Redis connection
+def get_redis_client() -> Redis:
+    """Get Redis client"""
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    return Redis.from_url(redis_url, decode_responses=True)  # type: ignore
 
 # Database connection
 async def get_db_connection():
@@ -131,23 +138,53 @@ async def get_orderflow_analysis(
             prev_volume = current_volume if current_volume > 0 else prev_volume
         
         # 2B. Calculate Segmented CVD (Futures + Options for 2 nearest expiries)
-        # Get 2 nearest expiry dates for NIFTY options
-        nearest_expiries = await conn.fetch("""
-            SELECT DISTINCT expiry
-            FROM ticks
-            WHERE (trading_symbol LIKE 'NIFTY%CE' OR trading_symbol LIKE 'NIFTY%PE')
-                AND expiry IS NOT NULL
-                AND time >= DATE_TRUNC('day', NOW())
-            ORDER BY expiry ASC
-            LIMIT 2
-        """)
+        # Get instrument tokens for NIFTY options with 2 nearest expiries from Redis
+        redis_client = get_redis_client()
         
-        expiry_dates = [row['expiry'] for row in nearest_expiries]
+        # Get all NIFTY option tokens from Redis (single scan)
+        expiry_map = {}  # Map token to expiry date
+        call_tokens = []
+        put_tokens = []
+        
+        for key in redis_client.scan_iter("instrument:*"):
+            token = key.split(":")[-1]
+            instrument_data: dict = redis_client.hgetall(key)  # type: ignore
+            
+            segment = instrument_data.get('segment', '')
+            name = instrument_data.get('name', '')
+            tradingsymbol = instrument_data.get('tradingsymbol', '')
+            expiry_str = instrument_data.get('expiry', '')
+            
+            # Filter for NIFTY options (NFO-OPT segment, NIFTY name)
+            if segment == 'NFO-OPT' and name == 'NIFTY' and expiry_str:
+                try:
+                    # Parse expiry date
+                    if expiry_str and expiry_str != 'None':
+                        expiry_date = datetime.strptime(expiry_str.split()[0], '%Y-%m-%d').date()
+                        token_int = int(token)
+                        expiry_map[token_int] = expiry_date
+                        
+                        # Categorize as call or put based on symbol
+                        if tradingsymbol.endswith('CE'):
+                            call_tokens.append((token_int, expiry_date))
+                        elif tradingsymbol.endswith('PE'):
+                            put_tokens.append((token_int, expiry_date))
+                except:
+                    continue
+        
+        redis_client.close()
+        
+        # Get 2 nearest expiries
+        unique_expiries = sorted(set(expiry_map.values()))[:2]
+        
+        # Filter tokens to only those with 2 nearest expiries
+        filtered_call_tokens = [token for token, expiry in call_tokens if expiry in unique_expiries]
+        filtered_put_tokens = [token for token, expiry in put_tokens if expiry in unique_expiries]
         
         calls_cvd_day = 0.0
         puts_cvd_day = 0.0
         
-        if expiry_dates:
+        if filtered_call_tokens:
             # Query NIFTY Call options for 2 nearest expiries
             calls_data = await conn.fetch("""
                 SELECT 
@@ -159,12 +196,14 @@ async def get_orderflow_analysis(
                     total_buy_quantity,
                     total_sell_quantity
                 FROM ticks
-                WHERE trading_symbol LIKE 'NIFTY%CE'
-                    AND expiry = ANY($1)
+                WHERE instrument_token = ANY($1)
                     AND time >= DATE_TRUNC('day', NOW())
                 ORDER BY time ASC
-            """, expiry_dates)
-            
+            """, filtered_call_tokens)
+        else:
+            calls_data = []
+        
+        if filtered_put_tokens:
             # Query NIFTY Put options for 2 nearest expiries
             puts_data = await conn.fetch("""
                 SELECT 
@@ -176,13 +215,11 @@ async def get_orderflow_analysis(
                     total_buy_quantity,
                     total_sell_quantity
                 FROM ticks
-                WHERE trading_symbol LIKE 'NIFTY%PE'
-                    AND expiry = ANY($1)
+                WHERE instrument_token = ANY($1)
                     AND time >= DATE_TRUNC('day', NOW())
                 ORDER BY time ASC
-            """, expiry_dates)
+            """, filtered_put_tokens)
         else:
-            calls_data = []
             puts_data = []
         
         calls_cvd_day = 0.0

@@ -40,6 +40,32 @@ kite = KiteConnect(api_key=KITE_API_KEY)
 REDIS_TOKEN_KEY = "kite_access_token"
 TOKEN_EXPIRY_SECONDS = 86400  # 24 hours
 
+# Token file path (persisted via volume mount)
+TOKEN_FILE_PATH = "/app/data/access_token.txt"
+
+
+def write_token_to_file(token: str):
+    """Write access token to persistent file"""
+    try:
+        os.makedirs(os.path.dirname(TOKEN_FILE_PATH), exist_ok=True)
+        with open(TOKEN_FILE_PATH, 'w') as f:
+            f.write(token)
+        logger.info(f"Access token written to {TOKEN_FILE_PATH}")
+    except Exception as e:
+        logger.error(f"Failed to write token to file: {e}")
+
+
+def read_token_from_file() -> Optional[str]:
+    """Read access token from persistent file"""
+    try:
+        if os.path.exists(TOKEN_FILE_PATH):
+            with open(TOKEN_FILE_PATH, 'r') as f:
+                token = f.read().strip()
+            return token if token else None
+        return None
+    except Exception as e:
+        logger.error(f"Failed to read token from file: {e}\")\n        return None
+
 
 @router.get("/login-url")
 async def get_login_url():
@@ -109,20 +135,23 @@ async def kite_callback(
         access_token = data["access_token"]
         logger.info("Successfully obtained access token")
         
-        # Store access_token in Redis with expiry
-        redis_client.setex(
-            REDIS_TOKEN_KEY,
-            TOKEN_EXPIRY_SECONDS,
-            access_token
-        )
-        logger.info(f"Stored access token in Redis (expires in {TOKEN_EXPIRY_SECONDS}s)")
+        # Store access_token in file (persisted)
+        write_token_to_file(access_token)
         
-        # Also store user profile for reference
-        redis_client.setex(
-            "kite_user_profile",
-            TOKEN_EXPIRY_SECONDS,
-            str(data.get("user_id", "unknown"))
-        )
+        # Also store in Redis for backward compatibility (optional)
+        try:
+            redis_client.setex(
+                REDIS_TOKEN_KEY,
+                TOKEN_EXPIRY_SECONDS,
+                access_token
+            )
+            redis_client.setex(
+                "kite_user_profile",
+                TOKEN_EXPIRY_SECONDS,
+                str(data.get("user_id", "unknown"))
+            )
+        except:
+            pass  # Redis is optional now
         
         # Redirect to success page
         return RedirectResponse(url="/success.html", status_code=302)
@@ -152,8 +181,15 @@ async def check_auth_status():
         }
     """
     try:
-        # Check if token exists in Redis
-        token = redis_client.get(REDIS_TOKEN_KEY)
+        # Check if token exists in file (primary source)
+        token = read_token_from_file()
+        
+        # Fallback to Redis if file is empty
+        if not token:
+            token = redis_client.get(REDIS_TOKEN_KEY)
+            # If found in Redis, save to file for persistence
+            if token:
+                write_token_to_file(token)
         
         if not token:
             return {
@@ -162,7 +198,7 @@ async def check_auth_status():
                 "message": "No access token found. Please authenticate."
             }
         
-        # Get remaining TTL
+        # Get remaining TTL from Redis (if available)
         ttl = redis_client.ttl(REDIS_TOKEN_KEY)
         user_id = redis_client.get("kite_user_profile")
         
