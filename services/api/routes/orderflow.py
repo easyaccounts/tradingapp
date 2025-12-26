@@ -141,7 +141,7 @@ async def get_orderflow_analysis(
             SELECT DISTINCT 
                 SUBSTRING(trading_symbol FROM 'NIFTY\\d{2}[A-Z]{3}\\d{2}') as expiry_code
             FROM ticks
-            WHERE trading_symbol LIKE 'NIFTY%CE' OR trading_symbol LIKE 'NIFTY%PE'
+            WHERE (trading_symbol LIKE 'NIFTY%CE' OR trading_symbol LIKE 'NIFTY%PE')
                 AND time >= $1
             ORDER BY expiry_code ASC
             LIMIT 2
@@ -149,10 +149,10 @@ async def get_orderflow_analysis(
         
         expiry_codes = [row['expiry_code'] for row in expiries if row['expiry_code']]
         
-        calls_cvd_3m = 0
-        calls_cvd_15m = 0
-        puts_cvd_3m = 0
-        puts_cvd_15m = 0
+        calls_cvd_3m = 0.0
+        calls_cvd_15m = 0.0
+        puts_cvd_3m = 0.0
+        puts_cvd_15m = 0.0
         
         if expiry_codes:
             # Build pattern for options
@@ -242,9 +242,9 @@ async def get_orderflow_analysis(
                     if row['time'] >= time_3m:
                         puts_cvd_3m += cvd_inc
         
-        # Calculate net options CVD
-        net_options_3m = calls_cvd_3m - puts_cvd_3m
-        net_options_15m = calls_cvd_15m - puts_cvd_15m
+        # Calculate net options CVD (ensure proper types)
+        net_options_3m = float(calls_cvd_3m) - float(puts_cvd_3m)
+        net_options_15m = float(calls_cvd_15m) - float(puts_cvd_15m)
         
         # 3. Calculate Imbalance (current + 30s avg)
         imbalance_data = await conn.fetch("""
