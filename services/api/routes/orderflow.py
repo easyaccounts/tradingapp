@@ -98,11 +98,15 @@ async def get_orderflow_analysis(
         prev_volume = None
         
         for row in cvd_data:
-            if prev_volume is not None:
-                volume_delta = row['volume_traded'] - prev_volume
+            current_volume = row['volume_traded'] or 0
+            buy_qty = row['total_buy_quantity'] or 0
+            sell_qty = row['total_sell_quantity'] or 0
+            
+            if prev_volume is not None and current_volume > 0:
+                volume_delta = current_volume - prev_volume
                 
                 # Use buy/sell pressure to determine direction
-                if row['total_buy_quantity'] > row['total_sell_quantity']:
+                if buy_qty > sell_qty:
                     cvd_change = volume_delta
                 else:
                     cvd_change = -volume_delta
@@ -113,7 +117,7 @@ async def get_orderflow_analysis(
                 if row['time'] >= time_3m:
                     cvd_3m += cvd_change
             
-            prev_volume = row['volume_traded']
+            prev_volume = current_volume if current_volume > 0 else prev_volume
         
         # 3. Calculate Imbalance (current + 30s avg)
         imbalance_data = await conn.fetch("""
@@ -152,7 +156,7 @@ async def get_orderflow_analysis(
         
         current_oi = latest['oi'] or 0
         oi_change = current_oi - (oi_1m_ago or current_oi)
-        current_price = latest['last_price']
+        current_price = latest['last_price'] or 0
         
         # Get price from 1m ago for comparison
         price_1m_ago = await conn.fetchval("""
@@ -193,6 +197,7 @@ async def get_orderflow_analysis(
         """, instrument_token)
         
         vwap = vwap_data['vwap'] or current_price
+        vwap = float(vwap) if vwap else current_price
         vwap_deviation = current_price - vwap
         vwap_deviation_pct = (vwap_deviation / vwap * 100) if vwap > 0 else 0
         vwap_position = "ABOVE" if current_price >= vwap else "BELOW"
@@ -210,7 +215,7 @@ async def get_orderflow_analysis(
             LIMIT 5
         """, instrument_token, time_5m)
         
-        volumes = [row['volume_change'] for row in reversed(volume_data)]
+        volumes = [(row['volume_change'] or 0) for row in reversed(volume_data)]
         times = [row['bucket'].strftime('%H:%M') for row in reversed(volume_data)]
         avg_volume = sum(volumes) / len(volumes) if volumes else 0
         
@@ -224,8 +229,10 @@ async def get_orderflow_analysis(
         
         # Calculate spread
         spread = 0
-        if bid_prices and ask_prices:
-            spread = ask_prices[0] - bid_prices[0]
+        if bid_prices and ask_prices and len(bid_prices) > 0 and len(ask_prices) > 0:
+            best_bid = float(bid_prices[0]) if bid_prices[0] is not None else 0
+            best_ask = float(ask_prices[0]) if ask_prices[0] is not None else 0
+            spread = best_ask - best_bid if best_ask > best_bid else 0
         
         # 8. Market Overview (day range)
         day_stats = await conn.fetchrow("""
@@ -369,6 +376,144 @@ async def get_orderflow_analysis(
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    
+    finally:
+        await conn.close()
+
+
+@router.get("/orderflow/history")
+async def get_historical_analysis(
+    instrument_token: int = Query(..., description="Instrument token to analyze")
+):
+    """
+    Get intraday historical analysis with time-series data
+    
+    Returns:
+    - price_action: 5-min candles throughout the day
+    - volume_profile: Volume distribution by price level
+    - oi_evolution: OI changes over time
+    - key_levels: Support/resistance based on volume
+    """
+    
+    conn = await get_db_connection()
+    
+    try:
+        # 1. Get 5-minute price candles for the day
+        candles = await conn.fetch("""
+            SELECT 
+                time_bucket('5 minutes', time) as bucket,
+                FIRST(last_price, time) as open,
+                MAX(last_price) as high,
+                MIN(last_price) as low,
+                LAST(last_price, time) as close,
+                MAX(volume_traded) - MIN(volume_traded) as volume,
+                AVG(oi) as avg_oi
+            FROM ticks
+            WHERE instrument_token = $1 
+                AND time >= DATE_TRUNC('day', NOW())
+            GROUP BY bucket
+            ORDER BY bucket ASC
+        """, instrument_token)
+        
+        price_action = []
+        for candle in candles:
+            price_action.append({
+                "time": candle['bucket'].strftime('%H:%M'),
+                "open": float(candle['open'] or 0),
+                "high": float(candle['high'] or 0),
+                "low": float(candle['low'] or 0),
+                "close": float(candle['close'] or 0),
+                "volume": int(candle['volume'] or 0),
+                "oi": int(candle['avg_oi'] or 0)
+            })
+        
+        # 2. Volume Profile - distribution by price level
+        volume_profile = await conn.fetch("""
+            SELECT 
+                ROUND(last_price / 10) * 10 as price_level,
+                COUNT(*) as tick_count,
+                SUM(COALESCE(volume_traded, 0)) as total_volume
+            FROM ticks
+            WHERE instrument_token = $1 
+                AND time >= DATE_TRUNC('day', NOW())
+                AND last_price IS NOT NULL
+            GROUP BY price_level
+            ORDER BY total_volume DESC
+            LIMIT 20
+        """, instrument_token)
+        
+        volume_by_price = []
+        for row in volume_profile:
+            volume_by_price.append({
+                "price_level": float(row['price_level'] or 0),
+                "volume": int(row['total_volume'] or 0),
+                "tick_count": int(row['tick_count'] or 0)
+            })
+        
+        # 3. OI Evolution - hourly OI changes
+        oi_evolution = await conn.fetch("""
+            SELECT 
+                time_bucket('30 minutes', time) as bucket,
+                AVG(oi) as avg_oi,
+                AVG(last_price) as avg_price
+            FROM ticks
+            WHERE instrument_token = $1 
+                AND time >= DATE_TRUNC('day', NOW())
+            GROUP BY bucket
+            ORDER BY bucket ASC
+        """, instrument_token)
+        
+        oi_timeline = []
+        for row in oi_evolution:
+            oi_timeline.append({
+                "time": row['bucket'].strftime('%H:%M'),
+                "oi": int(row['avg_oi'] or 0),
+                "price": float(row['avg_price'] or 0)
+            })
+        
+        # 4. Key Price Levels - support/resistance based on volume
+        key_levels = []
+        if volume_by_price:
+            # Top 5 price levels with highest volume
+            sorted_levels = sorted(volume_by_price, key=lambda x: x['volume'], reverse=True)[:5]
+            for level in sorted_levels:
+                key_levels.append({
+                    "price": level['price_level'],
+                    "volume": level['volume'],
+                    "type": "High Volume Node"
+                })
+        
+        # 5. Day Statistics
+        day_stats = await conn.fetchrow("""
+            SELECT 
+                COUNT(*) as total_ticks,
+                MAX(volume_traded) as peak_volume,
+                MAX(oi) as peak_oi,
+                MIN(oi) as min_oi,
+                STDDEV(last_price) as price_volatility
+            FROM ticks
+            WHERE instrument_token = $1 
+                AND time >= DATE_TRUNC('day', NOW())
+        """, instrument_token)
+        
+        response = {
+            "price_action": price_action,
+            "volume_profile": volume_by_price,
+            "oi_evolution": oi_timeline,
+            "key_levels": key_levels,
+            "day_stats": {
+                "total_ticks": int(day_stats['total_ticks'] or 0),
+                "peak_volume": int(day_stats['peak_volume'] or 0),
+                "peak_oi": int(day_stats['peak_oi'] or 0),
+                "min_oi": int(day_stats['min_oi'] or 0),
+                "price_volatility": round(float(day_stats['price_volatility'] or 0), 2)
+            }
+        }
+        
+        return response
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Historical analysis failed: {str(e)}")
     
     finally:
         await conn.close()

@@ -334,6 +334,53 @@
         </div>
     </div>
 
+    <!-- Historical Analysis Section -->
+    <div style="margin-top: 30px;">
+        <div class="card-title" style="margin-bottom: 15px; font-size: 20px; color: #fff;">📈 Intraday Historical Analysis</div>
+        
+        <div class="dashboard-grid">
+            <!-- Price Action Card -->
+            <div class="card" style="grid-column: span 2;">
+                <div class="card-title">📉 Price Action (5-Min Candles)</div>
+                <div id="priceActionCard">
+                    <div class="loading">Loading historical data...</div>
+                </div>
+            </div>
+
+            <!-- Volume Profile Card -->
+            <div class="card">
+                <div class="card-title">🔊 Volume Profile by Price</div>
+                <div id="volumeProfileCard">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+
+            <!-- OI Evolution Card -->
+            <div class="card">
+                <div class="card-title">📊 OI Evolution</div>
+                <div id="oiEvolutionCard">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Key Levels Card -->
+            <div class="card">
+                <div class="card-title">🎯 Key Price Levels</div>
+                <div id="keyLevelsCard">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Day Stats Card -->
+            <div class="card">
+                <div class="card-title">📊 Day Statistics</div>
+                <div id="dayStatsCard">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="last-update">
         Last updated: <span id="lastUpdate">-</span>
     </div>
@@ -571,11 +618,170 @@
             return num.toString();
         }
 
+        async function fetchHistoricalData() {
+            try {
+                const response = await fetch(`${API_BASE}/api/orderflow/history?instrument_token=${INSTRUMENT_TOKEN}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                updatePriceAction(data.price_action);
+                updateVolumeProfile(data.volume_profile);
+                updateOIEvolution(data.oi_evolution);
+                updateKeyLevels(data.key_levels);
+                updateDayStats(data.day_stats);
+                
+            } catch (error) {
+                console.error('Historical data fetch error:', error);
+                document.getElementById('priceActionCard').innerHTML = '<div class="error">Failed to load historical data</div>';
+            }
+        }
+
+        function updatePriceAction(candles) {
+            if (!candles || candles.length === 0) {
+                document.getElementById('priceActionCard').innerHTML = '<div>No price action data available</div>';
+                return;
+            }
+
+            let html = '<div style="max-height: 300px; overflow-y: auto;">';
+            html += '<table style="width: 100%; font-size: 12px;">';
+            html += '<thead><tr><th>Time</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>Volume</th><th>OI</th></tr></thead>';
+            html += '<tbody>';
+            
+            candles.forEach(candle => {
+                const change = candle.close - candle.open;
+                const colorClass = change > 0 ? 'positive' : (change < 0 ? 'negative' : '');
+                
+                html += `
+                    <tr>
+                        <td>${candle.time}</td>
+                        <td>${formatNumber(candle.open)}</td>
+                        <td>${formatNumber(candle.high)}</td>
+                        <td>${formatNumber(candle.low)}</td>
+                        <td class="${colorClass}">${formatNumber(candle.close)}</td>
+                        <td>${formatLargeNumber(candle.volume)}</td>
+                        <td>${formatLargeNumber(candle.oi)}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table></div>';
+            document.getElementById('priceActionCard').innerHTML = html;
+        }
+
+        function updateVolumeProfile(profile) {
+            if (!profile || profile.length === 0) {
+                document.getElementById('volumeProfileCard').innerHTML = '<div>No volume profile data</div>';
+                return;
+            }
+
+            const maxVolume = Math.max(...profile.map(p => p.volume));
+            
+            let html = '<div style="max-height: 300px; overflow-y: auto;">';
+            profile.forEach(level => {
+                const percentage = (level.volume / maxVolume * 100).toFixed(1);
+                html += `
+                    <div style="margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px;">
+                            <span>₹${formatNumber(level.price_level)}</span>
+                            <span>${formatLargeNumber(level.volume)} (${level.tick_count} ticks)</span>
+                        </div>
+                        <div style="background: #0d1428; height: 20px; border-radius: 4px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #2a5298, #1e3c72); height: 100%; width: ${percentage}%;"></div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            document.getElementById('volumeProfileCard').innerHTML = html;
+        }
+
+        function updateOIEvolution(timeline) {
+            if (!timeline || timeline.length === 0) {
+                document.getElementById('oiEvolutionCard').innerHTML = '<div>No OI evolution data</div>';
+                return;
+            }
+
+            let html = '<div style="max-height: 300px; overflow-y: auto; font-size: 12px;">';
+            timeline.forEach(point => {
+                html += `
+                    <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a2f4a;">
+                        <span>${point.time}</span>
+                        <span>${formatLargeNumber(point.oi)}</span>
+                        <span>₹${formatNumber(point.price)}</span>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            document.getElementById('oiEvolutionCard').innerHTML = html;
+        }
+
+        function updateKeyLevels(levels) {
+            if (!levels || levels.length === 0) {
+                document.getElementById('keyLevelsCard').innerHTML = '<div>No key levels identified</div>';
+                return;
+            }
+
+            let html = '<div style="font-size: 12px;">';
+            levels.forEach(level => {
+                html += `
+                    <div style="padding: 10px; margin-bottom: 8px; background: #0d1428; border-radius: 6px;">
+                        <div style="font-weight: 600; font-size: 16px; color: #ffa726;">₹${formatNumber(level.price)}</div>
+                        <div style="color: #aaa; margin-top: 3px;">${level.type}</div>
+                        <div style="color: #666; font-size: 11px;">Volume: ${formatLargeNumber(level.volume)}</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            document.getElementById('keyLevelsCard').innerHTML = html;
+        }
+
+        function updateDayStats(stats) {
+            if (!stats) {
+                document.getElementById('dayStatsCard').innerHTML = '<div>No statistics available</div>';
+                return;
+            }
+
+            let html = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 12px;">
+                    <div>
+                        <div style="color: #aaa; margin-bottom: 5px;">Total Ticks</div>
+                        <div style="font-size: 18px; font-weight: 600;">${formatLargeNumber(stats.total_ticks)}</div>
+                    </div>
+                    <div>
+                        <div style="color: #aaa; margin-bottom: 5px;">Peak Volume</div>
+                        <div style="font-size: 18px; font-weight: 600;">${formatLargeNumber(stats.peak_volume)}</div>
+                    </div>
+                    <div>
+                        <div style="color: #aaa; margin-bottom: 5px;">Peak OI</div>
+                        <div style="font-size: 18px; font-weight: 600;">${formatLargeNumber(stats.peak_oi)}</div>
+                    </div>
+                    <div>
+                        <div style="color: #aaa; margin-bottom: 5px;">Min OI</div>
+                        <div style="font-size: 18px; font-weight: 600;">${formatLargeNumber(stats.min_oi)}</div>
+                    </div>
+                    <div style="grid-column: span 2;">
+                        <div style="color: #aaa; margin-bottom: 5px;">Price Volatility (StdDev)</div>
+                        <div style="font-size: 18px; font-weight: 600;">₹${formatNumber(stats.price_volatility)}</div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('dayStatsCard').innerHTML = html;
+        }
+
         // Initialize dashboard
         fetchDashboardData();
+        fetchHistoricalData();
+        fetchHistoricalData();
         
         // Update every 2 seconds
         updateInterval = setInterval(fetchDashboardData, 2000);
+        
+        // Update historical data every 30 seconds
+        setInterval(fetchHistoricalData, 30000);
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
