@@ -152,19 +152,20 @@ services:
     networks:
       - tradingapp-network
 
-  # Celery Worker - Database writer
+  # RabbitMQ Consumer - Reads ticks and writes to database
   worker:
     build:
       context: ./services/worker
       dockerfile: Dockerfile
     container_name: tradingapp-worker
-    command: celery -A celery_app worker --loglevel=info --concurrency=4
+    command: python consumer.py
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       RABBITMQ_URL: ${RABBITMQ_URL}
       BATCH_SIZE: ${BATCH_SIZE}
       BATCH_TIMEOUT: ${BATCH_TIMEOUT}
+      PREFETCH_COUNT: 100
       LOG_LEVEL: ${LOG_LEVEL}
     depends_on:
       pgbouncer:
