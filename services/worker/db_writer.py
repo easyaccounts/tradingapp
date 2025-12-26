@@ -46,16 +46,16 @@ def get_db_engine():
 
 def bulk_insert_ticks(ticks: List[Dict]) -> int:
     """
-    Bulk insert ticks using PostgreSQL COPY for maximum performance
+    Bulk insert ticks using PostgreSQL execute_batch with ON CONFLICT
     
-    This method uses PostgreSQL's COPY command which is the fastest way
-    to insert large batches of data.
+    Deduplicates ticks in-memory (same time + instrument_token) and uses
+    ON CONFLICT DO UPDATE to handle cross-batch duplicates gracefully.
     
     Args:
         ticks: List of tick dictionaries
     
     Returns:
-        int: Number of rows inserted
+        int: Number of rows inserted/updated
     
     Raises:
         Exception: If insert fails
@@ -64,13 +64,30 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
         logger.warning("bulk_insert_called_with_empty_list")
         return 0
     
+    # Deduplicate within batch: keep latest tick per (time, instrument_token)
+    deduped = {}
+    for tick in ticks:
+        key = (tick.get('time'), tick.get('instrument_token'))
+        deduped[key] = tick
+    
+    ticks_to_insert = list(deduped.values())
+    original_count = len(ticks)
+    deduped_count = len(ticks_to_insert)
+    
+    if original_count > deduped_count:
+        logger.info(
+            "batch_deduplicated",
+            original=original_count,
+            deduped=deduped_count,
+            duplicates_removed=original_count - deduped_count
+        )
+    
     try:
         # Get raw psycopg2 connection
         conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
         
-        # Prepare data for COPY
-        # Match the exact order of columns in the database
+        # Column order matching database schema
         columns = [
             'time', 'last_trade_time', 'instrument_token', 'trading_symbol',
             'exchange', 'instrument_type', 'last_price', 'last_traded_quantity',
@@ -82,72 +99,53 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
             'mid_price', 'order_imbalance'
         ]
         
-        # Create CSV-like string buffer
-        buffer = io.StringIO()
+        # Build INSERT with ON CONFLICT DO UPDATE
+        cols_str = ', '.join(columns)
+        placeholders = ', '.join(['%s'] * len(columns))
         
-        for tick in ticks:
-            row_data = []
-            
+        # Columns to update on conflict (all except primary key)
+        update_cols = [col for col in columns if col not in ['time', 'instrument_token']]
+        update_set = ', '.join([f"{col} = EXCLUDED.{col}" for col in update_cols])
+        
+        insert_sql = f"""
+            INSERT INTO ticks ({cols_str})
+            VALUES ({placeholders})
+            ON CONFLICT (time, instrument_token) 
+            DO UPDATE SET {update_set}
+        """
+        
+        # Prepare data tuples
+        data_tuples = []
+        for tick in ticks_to_insert:
+            row = []
             for col in columns:
                 value = tick.get(col)
                 
-                # Handle None/NULL
-                if value is None:
-                    row_data.append('\\N')
-                
-                # Handle arrays (convert Python list to PostgreSQL array format)
-                elif col in ['bid_prices', 'bid_quantities', 'bid_orders', 
+                # Handle arrays - convert list to PostgreSQL array
+                if col in ['bid_prices', 'bid_quantities', 'bid_orders', 
                            'ask_prices', 'ask_quantities', 'ask_orders']:
                     if isinstance(value, list):
-                        # Convert to PostgreSQL array format: {val1,val2,val3}
-                        array_str = '{' + ','.join(str(v) if v is not None else 'NULL' for v in value) + '}'
-                        row_data.append(array_str)
+                        row.append(value)  # psycopg2 handles list -> array conversion
                     else:
-                        row_data.append('\\N')
-                
-                # Handle booleans
-                elif isinstance(value, bool):
-                    row_data.append('t' if value else 'f')
-                
-                # Handle timestamps (could be datetime object or ISO string from JSON)
-                elif isinstance(value, datetime):
-                    row_data.append(value.isoformat())
-                elif col in ['time', 'last_trade_time'] and isinstance(value, str):
-                    # Already a timestamp string from JSON serialization
-                    row_data.append(value)
-                
-                # Handle strings (escape tabs and newlines)
-                elif isinstance(value, str):
-                    escaped = value.replace('\t', '\\t').replace('\n', '\\n')
-                    row_data.append(escaped)
-                
-                # Everything else as string
+                        row.append(None)
                 else:
-                    row_data.append(str(value))
+                    row.append(value)
             
-            # Write tab-separated row
-            buffer.write('\t'.join(row_data) + '\n')
+            data_tuples.append(tuple(row))
         
-        # Reset buffer position
-        buffer.seek(0)
-        
-        # Execute COPY command
-        cursor.copy_from(
-            buffer,
-            'ticks',
-            columns=columns,
-            null='\\N'
-        )
+        # Execute batch insert with ON CONFLICT
+        execute_batch(cursor, insert_sql, data_tuples, page_size=500)
         
         # Commit transaction
         conn.commit()
         
-        rows_inserted = cursor.rowcount
+        rows_inserted = len(ticks_to_insert)
         
         logger.info(
             "bulk_insert_successful",
-            rows_inserted=rows_inserted,
-            batch_size=len(ticks)
+            rows_affected=rows_inserted,
+            original_batch_size=original_count,
+            deduped_batch_size=deduped_count
         )
         
         # Cleanup
@@ -169,13 +167,13 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
         logger.error(
             "bulk_insert_failed",
             error=str(e),
-            batch_size=len(ticks)
+            batch_size=len(ticks_to_insert)
         )
         
         # Try fallback method using SQLAlchemy
         try:
             logger.warning("attempting_fallback_insert_method")
-            return _bulk_insert_fallback(ticks)
+            return _bulk_insert_fallback(ticks_to_insert)
         except Exception as fallback_error:
             logger.error(
                 "fallback_insert_also_failed",
