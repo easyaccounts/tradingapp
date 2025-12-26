@@ -1,0 +1,14 @@
+[Unit]
+Description=Update NIFTY Options Tokens
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/tradingapp
+ExecStart=/opt/tradingapp/venv/bin/python /opt/tradingapp/scripts/update_nifty_options.py
+StandardOutput=append:/var/log/tradingapp/nifty-options-update.log
+StandardError=append:/var/log/tradingapp/nifty-options-update.log
+
+[Install]
+WantedBy=multi-user.target
