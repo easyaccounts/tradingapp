@@ -24,6 +24,10 @@ class KiteWebSocketHandler:
     MODE_QUOTE = "quote"
     MODE_FULL = "full"
     
+    # Batch publishing configuration
+    BATCH_SIZE = 50  # Number of ticks per batch
+    BATCH_TIMEOUT = 0.5  # Seconds before forcing flush
+    
     def __init__(
         self,
         api_key: str,
@@ -54,6 +58,11 @@ class KiteWebSocketHandler:
         self.invalid_tick_count = 0
         self.published_count = 0
         self.start_time = time.time()
+        
+        # Batch publishing
+        self.tick_buffer = []
+        self.last_publish_time = time.time()
+        self.batch_publish_count = 0
         
         # Reconnection settings
         self.reconnect_attempts = 0
@@ -186,16 +195,8 @@ class KiteWebSocketHandler:
                 # Enrich tick with metadata and derived metrics
                 enriched_tick = enrich_tick(tick, self.instruments_cache)
                 
-                # Publish to RabbitMQ
-                success = self.publisher.publish(enriched_tick.to_dict())
-                
-                if success:
-                    self.published_count += 1
-                else:
-                    logger.warning(
-                        "publish_failed",
-                        instrument_token=tick.instrument_token
-                    )
+                # Add to batch buffer
+                self.tick_buffer.append(enriched_tick.to_dict())
             
             except Exception as e:
                 logger.error(
@@ -204,6 +205,15 @@ class KiteWebSocketHandler:
                     instrument_token=raw_tick_data.get('instrument_token')
                 )
                 self.invalid_tick_count += 1
+        
+        # Check if we should flush batch
+        should_flush = (
+            len(self.tick_buffer) >= self.BATCH_SIZE or
+            (time.time() - self.last_publish_time) >= self.BATCH_TIMEOUT
+        )
+        
+        if should_flush and self.tick_buffer:
+            self._flush_tick_buffer()
         
         # Log statistics every 100 ticks
         if self.tick_count % 100 == 0:
@@ -216,6 +226,11 @@ class KiteWebSocketHandler:
             code=code,
             reason=reason
         )
+        
+        # Flush remaining ticks before closing
+        if self.tick_buffer:
+            logger.info("flushing_remaining_ticks_on_close", count=len(self.tick_buffer))
+            self._flush_tick_buffer()
         
         self._log_statistics()
     
@@ -243,6 +258,43 @@ class KiteWebSocketHandler:
             message="Max reconnection attempts reached"
         )
     
+    def _flush_tick_buffer(self):
+        """Flush buffered ticks to RabbitMQ"""
+        if not self.tick_buffer:
+            return
+        
+        buffer_to_publish = self.tick_buffer.copy()
+        batch_size = len(buffer_to_publish)
+        
+        try:
+            # Publish batch to RabbitMQ
+            success_count = self.publisher.publish_batch(buffer_to_publish)
+            
+            if success_count > 0:
+                self.published_count += success_count
+                self.batch_publish_count += 1
+                self.tick_buffer = []
+                self.last_publish_time = time.time()
+                
+                logger.debug(
+                    "batch_published",
+                    batch_size=batch_size,
+                    successful=success_count,
+                    total_batches=self.batch_publish_count
+                )
+            else:
+                logger.warning(
+                    "batch_publish_failed",
+                    batch_size=batch_size
+                )
+        
+        except Exception as e:
+            logger.error(
+                "batch_publish_error",
+                error=str(e),
+                batch_size=batch_size
+            )
+    
     def _log_statistics(self):
         """Log ingestion statistics"""
         elapsed_time = time.time() - self.start_time
@@ -254,8 +306,10 @@ class KiteWebSocketHandler:
             valid_ticks=self.valid_tick_count,
             invalid_ticks=self.invalid_tick_count,
             published_ticks=self.published_count,
+            batch_count=self.batch_publish_count,
             elapsed_seconds=round(elapsed_time, 2),
-            ticks_per_second=round(tps, 2)
+            ticks_per_second=round(tps, 2),
+            buffered_ticks=len(self.tick_buffer)
         )
     
     def start(self):
@@ -282,6 +336,11 @@ class KiteWebSocketHandler:
         logger.info("stopping_websocket_connection")
         
         try:
+            # Flush remaining ticks
+            if self.tick_buffer:
+                logger.info("flushing_remaining_ticks_on_stop", count=len(self.tick_buffer))
+                self._flush_tick_buffer()
+            
             if self.kws:
                 self.kws.close()
             

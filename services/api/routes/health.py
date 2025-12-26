@@ -99,10 +99,10 @@ async def check_redis() -> Dict[str, str]:
 
 async def check_rabbitmq() -> Dict[str, str]:
     """
-    Check RabbitMQ connection
+    Check RabbitMQ connection and queue metrics
     
     Returns:
-        dict: Status and connection info
+        dict: Status, connection info, and queue depth
     """
     try:
         # Parse RabbitMQ URL
@@ -115,20 +115,42 @@ async def check_rabbitmq() -> Dict[str, str]:
         if connection.is_open:
             channel = connection.channel()
             
-            # Declare a test queue (passive=True means don't create, just check)
+            # Declare queue and get metrics (passive=True means don't create, just check)
             try:
-                channel.queue_declare(queue='ticks_queue', passive=True)
+                method = channel.queue_declare(queue='ticks_queue', passive=True)
                 queue_exists = True
+                queue_depth = method.method.message_count
+                consumer_count = method.method.consumer_count
             except:
                 queue_exists = False
+                queue_depth = -1
+                consumer_count = 0
             
             connection.close()
             
+            # Calculate lag estimate (assuming 1000 ticks/sec processing rate per worker)
+            processing_rate = 1000 * max(consumer_count, 1)  # ticks per second
+            lag_seconds = queue_depth / processing_rate if processing_rate > 0 else 0
+            
+            # Determine health status based on queue depth
+            if queue_depth < 10000:
+                status = "healthy"
+                message = "RabbitMQ connection successful"
+            elif queue_depth < 50000:
+                status = "warning"
+                message = f"Queue depth high: {queue_depth} messages"
+            else:
+                status = "critical"
+                message = f"Queue depth very high: {queue_depth} messages"
+            
             return {
-                "status": "healthy",
+                "status": status,
                 "service": "RabbitMQ",
                 "ticks_queue_exists": queue_exists,
-                "message": "RabbitMQ connection successful"
+                "queue_depth": queue_depth,
+                "consumer_count": consumer_count,
+                "lag_estimate_seconds": round(lag_seconds, 2),
+                "message": message
             }
         else:
             raise Exception("Connection not open")

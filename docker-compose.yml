@@ -156,12 +156,64 @@ services:
     networks:
       - tradingapp-network
 
-  # RabbitMQ Consumer - Reads ticks and writes to database
-  worker:
+  # RabbitMQ Consumer - Reads ticks and writes to database (Instance 1)
+  worker-1:
     build:
       context: ./services/worker
       dockerfile: Dockerfile
-    container_name: tradingapp-worker
+    container_name: tradingapp-worker-1
+    command: python consumer.py
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      BATCH_SIZE: ${BATCH_SIZE}
+      BATCH_TIMEOUT: ${BATCH_TIMEOUT}
+      PREFETCH_COUNT: 100
+      LOG_LEVEL: ${LOG_LEVEL}
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradingapp-network
+
+  # Worker Instance 2
+  worker-2:
+    build:
+      context: ./services/worker
+      dockerfile: Dockerfile
+    container_name: tradingapp-worker-2
+    command: python consumer.py
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      BATCH_SIZE: ${BATCH_SIZE}
+      BATCH_TIMEOUT: ${BATCH_TIMEOUT}
+      PREFETCH_COUNT: 100
+      LOG_LEVEL: ${LOG_LEVEL}
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradingapp-network
+
+  # Worker Instance 3
+  worker-3:
+    build:
+      context: ./services/worker
+      dockerfile: Dockerfile
+    container_name: tradingapp-worker-3
     command: python consumer.py
     environment:
       DATABASE_URL: ${DATABASE_URL}

@@ -37,6 +37,7 @@ PREFETCH_COUNT = int(os.getenv("PREFETCH_COUNT", 100))
 
 # Global state
 tick_batch = []
+delivery_tags = []  # Track delivery tags for batch acknowledgment
 last_flush_time = time.time()
 should_stop = False
 
@@ -48,14 +49,15 @@ def signal_handler(signum, frame):
     should_stop = True
 
 
-def flush_batch():
-    """Flush current batch to database"""
-    global tick_batch, last_flush_time
+def flush_batch(channel=None):
+    """Flush current batch to database and acknowledge messages"""
+    global tick_batch, delivery_tags, last_flush_time
     
     if not tick_batch:
         return
     
     batch_to_flush = tick_batch.copy()
+    tags_to_ack = delivery_tags.copy()
     
     try:
         start_time = time.time()
@@ -75,28 +77,45 @@ def flush_batch():
             elapsed_seconds=round(elapsed, 2)
         )
         
-        # Only clear batch after successful insert
+        # Only clear batch and ack messages after successful DB write
         tick_batch = []
+        delivery_tags = []
         last_flush_time = time.time()
+        
+        # Acknowledge all messages in batch
+        if channel and tags_to_ack:
+            for tag in tags_to_ack:
+                try:
+                    channel.basic_ack(delivery_tag=tag)
+                except Exception as ack_error:
+                    logger.error("ack_failed", delivery_tag=tag, error=str(ack_error))
+            
+            logger.debug("batch_acknowledged", count=len(tags_to_ack))
         
     except Exception as e:
         logger.error("batch_flush_failed", error=str(e), batch_size=len(batch_to_flush))
-        # Clear batch to avoid infinite retry but log critical error
-        tick_batch = []
-        last_flush_time = time.time()
-        logger.critical("data_loss_potential", failed_batch_size=len(batch_to_flush))
+        # Don't clear batch or ack on failure - messages will be redelivered
+        logger.critical("batch_will_be_redelivered", failed_batch_size=len(batch_to_flush))
 
 
 def process_message(ch, method, properties, body):
     """Process a single message from RabbitMQ"""
-    global tick_batch, last_flush_time
+    global tick_batch, delivery_tags, last_flush_time
     
     try:
         # Parse JSON
         tick_data = json.loads(body)
         
-        # Add to batch
-        tick_batch.append(tick_data)
+        # Handle both single tick and batch of ticks
+        if isinstance(tick_data, list):
+            # Batch of ticks from ingestion service
+            tick_batch.extend(tick_data)
+            # Store delivery tag once for the entire batch message
+            delivery_tags.append(method.delivery_tag)
+        else:
+            # Single tick (backward compatibility)
+            tick_batch.append(tick_data)
+            delivery_tags.append(method.delivery_tag)
         
         # Check if we should flush
         should_flush = (
@@ -105,10 +124,9 @@ def process_message(ch, method, properties, body):
         )
         
         if should_flush:
-            flush_batch()
+            flush_batch(ch)
         
-        # Acknowledge message
-        ch.basic_ack(delivery_tag=method.delivery_tag)
+        # Note: Acknowledgment now happens in flush_batch after successful DB write
         
     except json.JSONDecodeError as e:
         logger.error("invalid_json", error=str(e))
@@ -211,7 +229,7 @@ def main():
                 
                 # Periodic flush check
                 if (time.time() - last_flush_time) >= BATCH_TIMEOUT and tick_batch:
-                    flush_batch()
+                    flush_batch(channel)
                     
             except Exception as e:
                 logger.error("consume_error", error=str(e))
@@ -223,7 +241,7 @@ def main():
         # Flush remaining batch
         if tick_batch:
             logger.info("flushing_remaining_batch", size=len(tick_batch))
-            flush_batch()
+            flush_batch(channel)
         
         # Close connection
         if channel and channel.is_open:
