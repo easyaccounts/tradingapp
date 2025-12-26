@@ -3,18 +3,26 @@ from datetime import datetime, timedelta
 import asyncpg
 import os
 from typing import Optional
+from urllib.parse import urlparse
 
 router = APIRouter()
 
 # Database connection
 async def get_db_connection():
-    """Create database connection"""
+    """Create database connection from DATABASE_URL"""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable not set")
+    
+    # Parse the DATABASE_URL
+    parsed = urlparse(database_url)
+    
     return await asyncpg.connect(
-        host=os.getenv("TIMESCALE_HOST", "timescaledb"),
-        port=int(os.getenv("TIMESCALE_PORT", 5432)),
-        user=os.getenv("TIMESCALE_USER", "postgres"),
-        password=os.getenv("TIMESCALE_PASSWORD", "password"),
-        database=os.getenv("TIMESCALE_DB", "trading")
+        host=parsed.hostname,
+        port=parsed.port or 5432,
+        user=parsed.username,
+        password=parsed.password,
+        database=parsed.path.lstrip('/')
     )
 
 
