@@ -99,19 +99,14 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
             'mid_price', 'order_imbalance'
         ]
         
-        # Build INSERT with ON CONFLICT DO UPDATE
+        # Build INSERT with ON CONFLICT DO NOTHING to skip duplicates
         cols_str = ', '.join(columns)
         placeholders = ', '.join(['%s'] * len(columns))
-        
-        # Columns to update on conflict (all except primary key)
-        update_cols = [col for col in columns if col not in ['time', 'instrument_token']]
-        update_set = ', '.join([f"{col} = EXCLUDED.{col}" for col in update_cols])
         
         insert_sql = f"""
             INSERT INTO ticks ({cols_str})
             VALUES ({placeholders})
-            ON CONFLICT (time, instrument_token) 
-            DO UPDATE SET {update_set}
+            ON CONFLICT (time, instrument_token) DO NOTHING
         """
         
         # Prepare data tuples
@@ -133,19 +128,21 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
             
             data_tuples.append(tuple(row))
         
-        # Execute batch insert with ON CONFLICT
+        # Execute batch insert with ON CONFLICT (silently skips duplicates)
         execute_batch(cursor, insert_sql, data_tuples, page_size=500)
         
         # Commit transaction
         conn.commit()
         
+        # Note: rowcount may not be accurate with ON CONFLICT DO NOTHING
         rows_inserted = len(ticks_to_insert)
         
         logger.info(
             "bulk_insert_successful",
-            rows_affected=rows_inserted,
+            rows_attempted=rows_inserted,
             original_batch_size=original_count,
-            deduped_batch_size=deduped_count
+            deduped_batch_size=deduped_count,
+            note="duplicates_silently_skipped_via_on_conflict"
         )
         
         # Cleanup
@@ -184,41 +181,100 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
 
 def _bulk_insert_fallback(ticks: List[Dict]) -> int:
     """
-    Fallback bulk insert using SQLAlchemy bulk_insert_mappings
-    Slower than COPY but more compatible
+    Fallback bulk insert using raw SQL with ON CONFLICT
+    Handles duplicates gracefully
     
     Args:
         ticks: List of tick dictionaries
     
     Returns:
-        int: Number of rows inserted
+        int: Number of rows inserted/updated
     """
-    session = SessionLocal()
-    
     try:
-        # Use bulk_insert_mappings for better performance than individual inserts
-        session.bulk_insert_mappings(
-            Tick,
-            ticks,
-            return_defaults=False
-        )
+        # Get raw psycopg2 connection for ON CONFLICT support
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
         
-        session.commit()
+        # Column order matching database schema
+        columns = [
+            'time', 'last_trade_time', 'instrument_token', 'trading_symbol',
+            'exchange', 'instrument_type', 'last_price', 'last_traded_quantity',
+            'average_traded_price', 'volume_traded', 'oi', 'oi_day_high',
+            'oi_day_low', 'day_open', 'day_high', 'day_low', 'day_close',
+            'change', 'change_percent', 'total_buy_quantity', 'total_sell_quantity',
+            'bid_prices', 'bid_quantities', 'bid_orders', 'ask_prices',
+            'ask_quantities', 'ask_orders', 'tradable', 'mode', 'bid_ask_spread',
+            'mid_price', 'order_imbalance'
+        ]
+        
+        # Build INSERT with ON CONFLICT DO NOTHING to skip duplicates
+        cols_str = ', '.join(columns)
+        placeholders = ', '.join(['%s'] * len(columns))
+        
+        insert_sql = f"""
+            INSERT INTO ticks ({cols_str})
+            VALUES ({placeholders})
+            ON CONFLICT (time, instrument_token) DO NOTHING
+        """
+        
+        # Prepare data tuples
+        data_tuples = []
+        for tick in ticks:
+            row = []
+            for col in columns:
+                value = tick.get(col)
+                
+                # Handle arrays - convert list to PostgreSQL array
+                if col in ['bid_prices', 'bid_quantities', 'bid_orders', 
+                           'ask_prices', 'ask_quantities', 'ask_orders']:
+                    if isinstance(value, list):
+                        row.append(value)  # psycopg2 handles list -> array conversion
+                    else:
+                        row.append(None)
+                else:
+                    row.append(value)
+            
+            data_tuples.append(tuple(row))
+        
+        # Execute inserts one by one (slower but handles duplicates)
+        inserted_count = 0
+        for data_tuple in data_tuples:
+            try:
+                cursor.execute(insert_sql, data_tuple)
+                if cursor.rowcount > 0:
+                    inserted_count += cursor.rowcount
+            except Exception as row_error:
+                logger.warning("fallback_row_insert_failed", error=str(row_error))
+                continue
+        
+        # Commit transaction
+        conn.commit()
         
         logger.info(
             "fallback_insert_successful",
-            rows_inserted=len(ticks)
+            rows_inserted=inserted_count,
+            batch_size=len(ticks),
+            duplicates_skipped=len(ticks) - inserted_count
         )
         
-        return len(ticks)
+        # Cleanup
+        cursor.close()
+        conn.close()
+        
+        return inserted_count
     
     except Exception as e:
-        session.rollback()
+        # Ensure cleanup on error
+        try:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            if 'conn' in locals() and conn:
+                conn.close()
+        except:
+            pass
+        
         logger.error("fallback_insert_failed", error=str(e))
         raise
-    
-    finally:
-        session.close()
 
 
 def test_connection() -> bool:
