@@ -78,38 +78,54 @@ async def get_orderflow_analysis(
         if not latest:
             raise HTTPException(status_code=404, detail=f"No data found for instrument {instrument_token}")
         
-        # 2. Calculate CVD (3-min and 15-min)
+        # 2. Calculate CVD (3-min and 15-min) using volume delta with aggressor side
         cvd_data = await conn.fetch("""
             SELECT 
                 time,
                 volume_traded,
+                last_price,
+                bid_prices,
+                ask_prices,
                 total_buy_quantity,
-                total_sell_quantity,
-                last_price
+                total_sell_quantity
             FROM ticks
             WHERE instrument_token = $1 
                 AND time >= $2
             ORDER BY time ASC
         """, instrument_token, time_15m)
         
-        # Calculate CVD
+        # Calculate CVD using volume delta with aggressor side detection
         cvd_3m = 0
         cvd_15m = 0
         prev_volume = None
         
         for row in cvd_data:
             current_volume = row['volume_traded'] or 0
-            buy_qty = row['total_buy_quantity'] or 0
-            sell_qty = row['total_sell_quantity'] or 0
+            last_price = row['last_price'] or 0
+            bid_prices = row['bid_prices'] or []
+            ask_prices = row['ask_prices'] or []
             
-            if prev_volume is not None and current_volume > 0:
+            if prev_volume is not None and current_volume > prev_volume and last_price > 0:
                 volume_delta = current_volume - prev_volume
                 
-                # Use buy/sell pressure to determine direction
-                if buy_qty > sell_qty:
-                    cvd_change = volume_delta
+                # Determine aggressor side by comparing last price with bid/ask
+                best_bid = float(bid_prices[0]) if bid_prices and len(bid_prices) > 0 and bid_prices[0] else 0
+                best_ask = float(ask_prices[0]) if ask_prices and len(ask_prices) > 0 and ask_prices[0] else 0
+                
+                # If trade at ask or above, buyer is aggressor (bullish)
+                # If trade at bid or below, seller is aggressor (bearish)
+                if best_ask > 0 and last_price >= best_ask:
+                    cvd_change = volume_delta  # Buyer initiated
+                elif best_bid > 0 and last_price <= best_bid:
+                    cvd_change = -volume_delta  # Seller initiated
                 else:
-                    cvd_change = -volume_delta
+                    # Trade between bid/ask, use order book imbalance as tiebreaker
+                    buy_qty = row['total_buy_quantity'] or 0
+                    sell_qty = row['total_sell_quantity'] or 0
+                    if buy_qty > sell_qty:
+                        cvd_change = volume_delta
+                    else:
+                        cvd_change = -volume_delta
                 
                 cvd_15m += cvd_change
                 
@@ -118,6 +134,117 @@ async def get_orderflow_analysis(
                     cvd_3m += cvd_change
             
             prev_volume = current_volume if current_volume > 0 else prev_volume
+        
+        # 2B. Calculate Segmented CVD (Futures + Options for 2 nearest expiries)
+        # Get nearest 2 expiries for NIFTY options
+        expiries = await conn.fetch("""
+            SELECT DISTINCT 
+                SUBSTRING(trading_symbol FROM 'NIFTY\\d{2}[A-Z]{3}\\d{2}') as expiry_code
+            FROM ticks
+            WHERE trading_symbol LIKE 'NIFTY%CE' OR trading_symbol LIKE 'NIFTY%PE'
+                AND time >= $1
+            ORDER BY expiry_code ASC
+            LIMIT 2
+        """, time_15m)
+        
+        expiry_codes = [row['expiry_code'] for row in expiries if row['expiry_code']]
+        
+        calls_cvd_3m = 0
+        calls_cvd_15m = 0
+        puts_cvd_3m = 0
+        puts_cvd_15m = 0
+        
+        if expiry_codes:
+            # Build pattern for options
+            expiry_patterns = '|'.join(expiry_codes)
+            
+            # Calculate Calls CVD
+            calls_data = await conn.fetch("""
+                SELECT 
+                    time,
+                    volume_traded,
+                    last_price,
+                    bid_prices,
+                    ask_prices,
+                    total_buy_quantity,
+                    total_sell_quantity
+                FROM ticks
+                WHERE trading_symbol ~ $1
+                    AND time >= $2
+                ORDER BY time ASC
+            """, f'NIFTY.*({expiry_patterns}).*CE$', time_15m)
+            
+            # Calculate Puts CVD
+            puts_data = await conn.fetch("""
+                SELECT 
+                    time,
+                    volume_traded,
+                    last_price,
+                    bid_prices,
+                    ask_prices,
+                    total_buy_quantity,
+                    total_sell_quantity
+                FROM ticks
+                WHERE trading_symbol ~ $1
+                    AND time >= $2
+                ORDER BY time ASC
+            """, f'NIFTY.*({expiry_patterns}).*PE$', time_15m)
+            
+            # Process Calls
+            prev_vol = {}
+            for row in calls_data:
+                vol = row['volume_traded'] or 0
+                price = row['last_price'] or 0
+                
+                # Use some unique key per strike - simplified to use volume as proxy
+                if vol > 0 and price > 0:
+                    # Calculate CVD change similar to futures
+                    bid_prices = row['bid_prices'] or []
+                    ask_prices = row['ask_prices'] or []
+                    best_bid = float(bid_prices[0]) if bid_prices and len(bid_prices) > 0 and bid_prices[0] else 0
+                    best_ask = float(ask_prices[0]) if ask_prices and len(ask_prices) > 0 and ask_prices[0] else 0
+                    
+                    # Simplified: accumulate based on aggressor side
+                    if best_ask > 0 and price >= best_ask:
+                        cvd_inc = 1  # Simplified increment
+                    elif best_bid > 0 and price <= best_bid:
+                        cvd_inc = -1
+                    else:
+                        buy_qty = row['total_buy_quantity'] or 0
+                        sell_qty = row['total_sell_quantity'] or 0
+                        cvd_inc = 1 if buy_qty > sell_qty else -1
+                    
+                    calls_cvd_15m += cvd_inc
+                    if row['time'] >= time_3m:
+                        calls_cvd_3m += cvd_inc
+            
+            # Process Puts
+            for row in puts_data:
+                vol = row['volume_traded'] or 0
+                price = row['last_price'] or 0
+                
+                if vol > 0 and price > 0:
+                    bid_prices = row['bid_prices'] or []
+                    ask_prices = row['ask_prices'] or []
+                    best_bid = float(bid_prices[0]) if bid_prices and len(bid_prices) > 0 and bid_prices[0] else 0
+                    best_ask = float(ask_prices[0]) if ask_prices and len(ask_prices) > 0 and ask_prices[0] else 0
+                    
+                    if best_ask > 0 and price >= best_ask:
+                        cvd_inc = 1
+                    elif best_bid > 0 and price <= best_bid:
+                        cvd_inc = -1
+                    else:
+                        buy_qty = row['total_buy_quantity'] or 0
+                        sell_qty = row['total_sell_quantity'] or 0
+                        cvd_inc = 1 if buy_qty > sell_qty else -1
+                    
+                    puts_cvd_15m += cvd_inc
+                    if row['time'] >= time_3m:
+                        puts_cvd_3m += cvd_inc
+        
+        # Calculate net options CVD
+        net_options_3m = calls_cvd_3m - puts_cvd_3m
+        net_options_15m = calls_cvd_15m - puts_cvd_15m
         
         # 3. Calculate Imbalance (current + 30s avg)
         imbalance_data = await conn.fetch("""
@@ -336,6 +463,24 @@ async def get_orderflow_analysis(
             "cvd": {
                 "cvd_3min": round(float(cvd_3m), 2),
                 "cvd_15min": round(float(cvd_15m), 2)
+            },
+            "cvd_segmented": {
+                "futures": {
+                    "cvd_3min": round(float(cvd_3m), 2),
+                    "cvd_15min": round(float(cvd_15m), 2)
+                },
+                "calls": {
+                    "cvd_3min": round(float(calls_cvd_3m), 2),
+                    "cvd_15min": round(float(calls_cvd_15m), 2)
+                },
+                "puts": {
+                    "cvd_3min": round(float(puts_cvd_3m), 2),
+                    "cvd_15min": round(float(puts_cvd_15m), 2)
+                },
+                "net_options": {
+                    "cvd_3min": round(float(net_options_3m), 2),
+                    "cvd_15min": round(float(net_options_15m), 2)
+                }
             },
             "imbalance": {
                 "ratio": round(float(current_ratio), 2),

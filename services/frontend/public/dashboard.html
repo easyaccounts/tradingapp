@@ -460,16 +460,45 @@
             const status = data.cvd_3min > 0 ? 'bullish' : data.cvd_3min < 0 ? 'bearish' : 'neutral';
             const statusText = data.cvd_3min > 0 ? 'BULLISH - Buyers Dominant' : data.cvd_3min < 0 ? 'BEARISH - Sellers Dominant' : 'NEUTRAL';
             
+            // Get segmented CVD data
+            const segmented = data.cvd_segmented || {
+                futures: {cvd_3min: 0, cvd_15min: 0},
+                calls: {cvd_3min: 0, cvd_15min: 0},
+                puts: {cvd_3min: 0, cvd_15min: 0},
+                net_options: {cvd_3min: 0, cvd_15min: 0}
+            };
+            
             document.getElementById('cvdCard').innerHTML = `
                 <div class="signal-value ${status === 'bullish' ? 'positive' : status === 'bearish' ? 'negative' : 'neutral'}">
                     ${data.cvd_3min > 0 ? '+' : ''}${formatNumber(data.cvd_3min)} ${data.cvd_3min > 0 ? '⬆️' : data.cvd_3min < 0 ? '⬇️' : '↔️'}
                 </div>
+                
+                <div style="margin: 12px 0; padding: 8px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">SEGMENTED CVD (3-Min)</div>
+                    <div class="metric-row">
+                        <span class="metric-label">Futures</span>
+                        <span class="metric-value ${segmented.futures.cvd_3min > 0 ? 'positive' : segmented.futures.cvd_3min < 0 ? 'negative' : ''}">${segmented.futures.cvd_3min > 0 ? '+' : ''}${formatNumber(segmented.futures.cvd_3min)}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Calls</span>
+                        <span class="metric-value ${segmented.calls.cvd_3min > 0 ? 'positive' : segmented.calls.cvd_3min < 0 ? 'negative' : ''}">${segmented.calls.cvd_3min > 0 ? '+' : ''}${formatNumber(segmented.calls.cvd_3min)}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Puts</span>
+                        <span class="metric-value ${segmented.puts.cvd_3min > 0 ? 'positive' : segmented.puts.cvd_3min < 0 ? 'negative' : ''}">${segmented.puts.cvd_3min > 0 ? '+' : ''}${formatNumber(segmented.puts.cvd_3min)}</span>
+                    </div>
+                    <div class="metric-row" style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 6px; margin-top: 6px;">
+                        <span class="metric-label" style="font-weight: 600;">Net Options</span>
+                        <span class="metric-value ${segmented.net_options.cvd_3min > 0 ? 'positive' : segmented.net_options.cvd_3min < 0 ? 'negative' : ''}" style="font-weight: 600;">${segmented.net_options.cvd_3min > 0 ? '+' : ''}${formatNumber(segmented.net_options.cvd_3min)}</span>
+                    </div>
+                </div>
+                
                 <div class="metric-row">
-                    <span class="metric-label">3-Min CVD</span>
+                    <span class="metric-label">Overall 3-Min</span>
                     <span class="metric-value ${status === 'bullish' ? 'positive' : status === 'bearish' ? 'negative' : ''}">${formatNumber(data.cvd_3min)}</span>
                 </div>
                 <div class="metric-row">
-                    <span class="metric-label">15-Min CVD</span>
+                    <span class="metric-label">Overall 15-Min</span>
                     <span class="metric-value">${formatNumber(data.cvd_15min)}</span>
                 </div>
                 <div class="signal-status status-${status}">${statusText}</div>
