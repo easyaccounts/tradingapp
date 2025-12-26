@@ -74,6 +74,12 @@ CREATE TABLE ticks (
     depth_imbalance_ratio NUMERIC(8, 4), -- bid_depth_total / ask_depth_total
     price_delta NUMERIC(12, 2),         -- Change in price from previous tick
     
+    -- Orderflow Toxicity Metrics (for high-probability trading signals)
+    consumption_rate NUMERIC(12, 2),    -- Depth consumed per volume unit
+    flow_intensity NUMERIC(12, 2),      -- Kyle's Lambda: price impact per volume
+    depth_toxicity_tick NUMERIC(8, 4),  -- Depth Consumption Rate metric (tick-level)
+    kyle_lambda_tick NUMERIC(12, 6),    -- Kyle's Lambda metric (tick-level)
+    
     -- Legacy derived fields (kept for backward compatibility)
     bid_ask_spread NUMERIC(12, 2),      -- ask[0] - bid[0]
     mid_price NUMERIC(12, 2),           -- (bid[0] + ask[0]) / 2

@@ -168,6 +168,32 @@ def calculate_tick_metrics(tick: Dict, previous_tick: Optional[Dict]) -> Dict:
     else:
         metrics['price_delta'] = 0.0
     
+    # ========================================================================
+    # ORDERFLOW TOXICITY METRICS
+    # ========================================================================
+    # 12. consumption_rate - Depth consumed per volume unit
+    total_depth = metrics['bid_depth_total'] + metrics['ask_depth_total']
+    if metrics['volume_delta'] > 0 and total_depth > 0:
+        metrics['consumption_rate'] = total_depth / metrics['volume_delta']
+    else:
+        metrics['consumption_rate'] = 0.0
+    
+    # 13. flow_intensity - Price impact per volume (Kyle's Lambda component)
+    if metrics['volume_delta'] > 0 and abs(metrics['price_delta']) > 0.01:
+        metrics['flow_intensity'] = abs(metrics['price_delta']) / metrics['volume_delta']
+    else:
+        metrics['flow_intensity'] = 0.0
+    
+    # 14. depth_toxicity_tick - Depth Consumption Rate (lower = more toxic)
+    # Formula: 1 / (1 + consumption_rate)
+    # Range: 0 to 1, where values near 0 = high toxicity
+    metrics['depth_toxicity_tick'] = 1.0 / (1.0 + metrics['consumption_rate'])
+    
+    # 15. kyle_lambda_tick - Kyle's Lambda (higher = more toxic flow)
+    # Formula: flow_intensity * depth_toxicity
+    # Combines price impact with depth consumption
+    metrics['kyle_lambda_tick'] = metrics['flow_intensity'] * metrics['depth_toxicity_tick']
+    
     return metrics
 
 
@@ -262,6 +288,8 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
             'volume_delta', 'oi_delta', 'aggressor_side', 'cvd_change',
             'buy_quantity_delta', 'sell_quantity_delta', 'mid_price_calc',
             'bid_depth_total', 'ask_depth_total', 'depth_imbalance_ratio', 'price_delta',
+            # Orderflow toxicity metrics
+            'consumption_rate', 'flow_intensity', 'depth_toxicity_tick', 'kyle_lambda_tick',
             # Legacy fields
             'bid_ask_spread', 'mid_price', 'order_imbalance'
         ]
