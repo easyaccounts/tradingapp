@@ -64,7 +64,8 @@ def read_token_from_file() -> Optional[str]:
             return token if token else None
         return None
     except Exception as e:
-        logger.error(f"Failed to read token from file: {e}\")\n        return None
+        logger.error(f"Failed to read token from file: {e}")
+        return None
 
 
 @router.get("/login-url")
