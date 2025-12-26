@@ -34,8 +34,26 @@ load_dotenv()
 
 # Configuration
 INSTRUMENTS_URL = "https://api.kite.trade/instruments"
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Database URLs - use localhost for host execution, docker names inside containers
+def get_database_url():
+    """Get DATABASE_URL with fallback to localhost"""
+    url = os.getenv("DATABASE_URL", "")
+    # If URL contains docker service names, replace with localhost
+    if "pgbouncer" in url or not url:
+        return "postgresql://tradinguser:tradingpassword@localhost:5432/tradingdb"
+    return url
+
+def get_redis_url():
+    """Get REDIS_URL with fallback to localhost"""
+    url = os.getenv("REDIS_URL", "")
+    # If URL contains docker service names, replace with localhost
+    if "redis:" in url and "localhost" not in url:
+        return "redis://localhost:6379/0"
+    return url if url else "redis://localhost:6379/0"
+
+REDIS_URL = get_redis_url()
+DATABASE_URL = get_database_url()
 ENV_FILE = Path(__file__).parent.parent / ".env"
 BACKUP_DIR = Path(__file__).parent.parent / "backups"
 
