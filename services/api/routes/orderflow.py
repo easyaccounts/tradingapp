@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 import asyncpg
 import os
 from typing import Optional
-from urllib.parse import urlparse
 
 router = APIRouter()
 
@@ -14,16 +13,15 @@ async def get_db_connection():
     if not database_url:
         raise ValueError("DATABASE_URL environment variable not set")
     
-    # Parse the DATABASE_URL
-    parsed = urlparse(database_url)
+    # asyncpg can directly use postgresql:// URLs
+    # Convert postgres:// to postgresql:// if needed
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
     
-    return await asyncpg.connect(
-        host=parsed.hostname,
-        port=parsed.port or 5432,
-        user=parsed.username,
-        password=parsed.password,
-        database=parsed.path.lstrip('/')
-    )
+    try:
+        return await asyncpg.connect(database_url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
 
 
 @router.get("/orderflow")
