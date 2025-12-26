@@ -95,18 +95,18 @@ async def get_orderflow_analysis(
         """, instrument_token, time_15m)
         
         # Calculate CVD using volume delta with aggressor side detection
-        cvd_3m = 0
-        cvd_15m = 0
+        cvd_3m = 0.0
+        cvd_15m = 0.0
         prev_volume = None
         
         for row in cvd_data:
-            current_volume = row['volume_traded'] or 0
-            last_price = row['last_price'] or 0
+            current_volume = float(row['volume_traded'] or 0)
+            last_price = float(row['last_price'] or 0)
             bid_prices = row['bid_prices'] or []
             ask_prices = row['ask_prices'] or []
             
             if prev_volume is not None and current_volume > prev_volume and last_price > 0:
-                volume_delta = current_volume - prev_volume
+                volume_delta = float(current_volume - prev_volume)
                 
                 # Determine aggressor side by comparing last price with bid/ask
                 best_bid = float(bid_prices[0]) if bid_prices and len(bid_prices) > 0 and bid_prices[0] else 0
@@ -120,8 +120,8 @@ async def get_orderflow_analysis(
                     cvd_change = -volume_delta  # Seller initiated
                 else:
                     # Trade between bid/ask, use order book imbalance as tiebreaker
-                    buy_qty = row['total_buy_quantity'] or 0
-                    sell_qty = row['total_sell_quantity'] or 0
+                    buy_qty = float(row['total_buy_quantity'] or 0)
+                    sell_qty = float(row['total_sell_quantity'] or 0)
                     if buy_qty > sell_qty:
                         cvd_change = volume_delta
                     else:
@@ -193,8 +193,8 @@ async def get_orderflow_analysis(
             # Process Calls
             prev_vol = {}
             for row in calls_data:
-                vol = row['volume_traded'] or 0
-                price = row['last_price'] or 0
+                vol = float(row['volume_traded'] or 0)
+                price = float(row['last_price'] or 0)
                 
                 # Use some unique key per strike - simplified to use volume as proxy
                 if vol > 0 and price > 0:
@@ -210,8 +210,8 @@ async def get_orderflow_analysis(
                     elif best_bid > 0 and price <= best_bid:
                         cvd_inc = -1
                     else:
-                        buy_qty = row['total_buy_quantity'] or 0
-                        sell_qty = row['total_sell_quantity'] or 0
+                        buy_qty = float(row['total_buy_quantity'] or 0)
+                        sell_qty = float(row['total_sell_quantity'] or 0)
                         cvd_inc = 1 if buy_qty > sell_qty else -1
                     
                     calls_cvd_15m += cvd_inc
@@ -220,8 +220,8 @@ async def get_orderflow_analysis(
             
             # Process Puts
             for row in puts_data:
-                vol = row['volume_traded'] or 0
-                price = row['last_price'] or 0
+                vol = float(row['volume_traded'] or 0)
+                price = float(row['last_price'] or 0)
                 
                 if vol > 0 and price > 0:
                     bid_prices = row['bid_prices'] or []
@@ -234,8 +234,8 @@ async def get_orderflow_analysis(
                     elif best_bid > 0 and price <= best_bid:
                         cvd_inc = -1
                     else:
-                        buy_qty = row['total_buy_quantity'] or 0
-                        sell_qty = row['total_sell_quantity'] or 0
+                        buy_qty = float(row['total_buy_quantity'] or 0)
+                        sell_qty = float(row['total_sell_quantity'] or 0)
                         cvd_inc = 1 if buy_qty > sell_qty else -1
                     
                     puts_cvd_15m += cvd_inc
@@ -257,19 +257,19 @@ async def get_orderflow_analysis(
             ORDER BY time DESC
         """, instrument_token)
         
-        current_bid = latest['total_buy_quantity'] or 0
-        current_ask = latest['total_sell_quantity'] or 0
-        current_ratio = current_bid / current_ask if current_ask > 0 else 0
+        current_bid = float(latest['total_buy_quantity'] or 0)
+        current_ask = float(latest['total_sell_quantity'] or 0)
+        current_ratio = float(current_bid / current_ask) if current_ask > 0 else 0.0
         
         # Calculate 30s average ratio
         avg_ratios = []
         for row in imbalance_data:
-            bid = row['total_buy_quantity'] or 0
-            ask = row['total_sell_quantity'] or 0
+            bid = float(row['total_buy_quantity'] or 0)
+            ask = float(row['total_sell_quantity'] or 0)
             if ask > 0:
-                avg_ratios.append(bid / ask)
+                avg_ratios.append(float(bid / ask))
         
-        avg_ratio_30s = sum(avg_ratios) / len(avg_ratios) if avg_ratios else current_ratio
+        avg_ratio_30s = float(sum(avg_ratios) / len(avg_ratios)) if avg_ratios else current_ratio
         
         # 4. OI Pattern Analysis
         oi_1m_ago = await conn.fetchval("""
@@ -281,9 +281,9 @@ async def get_orderflow_analysis(
             LIMIT 1
         """, instrument_token, time_1m)
         
-        current_oi = latest['oi'] or 0
-        oi_change = current_oi - (oi_1m_ago or current_oi)
-        current_price = latest['last_price'] or 0
+        current_oi = float(latest['oi'] or 0)
+        oi_change = float(current_oi - float(oi_1m_ago or current_oi))
+        current_price = float(latest['last_price'] or 0)
         
         # Get price from 1m ago for comparison
         price_1m_ago = await conn.fetchval("""
@@ -295,7 +295,7 @@ async def get_orderflow_analysis(
             LIMIT 1
         """, instrument_token, time_1m)
         
-        price_change = current_price - (price_1m_ago or current_price)
+        price_change = float(current_price - float(price_1m_ago or current_price))
         
         # Determine OI pattern
         if oi_change > 0 and price_change > 0:
@@ -324,9 +324,9 @@ async def get_orderflow_analysis(
         """, instrument_token)
         
         vwap = vwap_data['vwap'] or current_price
-        vwap = float(vwap) if vwap else current_price
-        vwap_deviation = current_price - vwap
-        vwap_deviation_pct = (vwap_deviation / vwap * 100) if vwap > 0 else 0
+        vwap = float(vwap) if vwap else float(current_price)
+        vwap_deviation = float(current_price - vwap)
+        vwap_deviation_pct = float(vwap_deviation / vwap * 100) if vwap > 0 else 0.0
         vwap_position = "ABOVE" if current_price >= vwap else "BELOW"
         
         # 6. Volume Analysis (last 5 minutes, 1-min buckets)
@@ -342,9 +342,9 @@ async def get_orderflow_analysis(
             LIMIT 5
         """, instrument_token, time_5m)
         
-        volumes = [(row['volume_change'] or 0) for row in reversed(volume_data)]
+        volumes = [float(row['volume_change'] or 0) for row in reversed(volume_data)]
         times = [row['bucket'].strftime('%H:%M') for row in reversed(volume_data)]
-        avg_volume = sum(volumes) / len(volumes) if volumes else 0
+        avg_volume = float(sum(volumes) / len(volumes)) if volumes else 0.0
         
         # 7. Order Book (top 5 levels)
         bid_prices = latest['bid_prices'] or []
@@ -357,9 +357,9 @@ async def get_orderflow_analysis(
         # Calculate spread
         spread = 0
         if bid_prices and ask_prices and len(bid_prices) > 0 and len(ask_prices) > 0:
-            best_bid = float(bid_prices[0]) if bid_prices[0] is not None else 0
-            best_ask = float(ask_prices[0]) if ask_prices[0] is not None else 0
-            spread = best_ask - best_bid if best_ask > best_bid else 0
+            best_bid = float(bid_prices[0]) if bid_prices[0] is not None else 0.0
+            best_ask = float(ask_prices[0]) if ask_prices[0] is not None else 0.0
+            spread = float(best_ask - best_bid) if best_ask > best_bid else 0.0
         
         # 8. Market Overview (day range)
         day_stats = await conn.fetchrow("""
@@ -375,12 +375,12 @@ async def get_orderflow_analysis(
                 AND time >= DATE_TRUNC('day', NOW())
         """, instrument_token)
         
-        day_high = day_stats['day_high'] or current_price
-        day_low = day_stats['day_low'] or current_price
-        day_open = day_stats['day_open'] or current_price
-        day_range = day_high - day_low
-        price_change_day = current_price - day_open
-        price_change_pct = (price_change_day / day_open * 100) if day_open > 0 else 0
+        day_high = float(day_stats['day_high'] or current_price)
+        day_low = float(day_stats['day_low'] or current_price)
+        day_open = float(day_stats['day_open'] or current_price)
+        day_range = float(day_high - day_low)
+        price_change_day = float(current_price - day_open)
+        price_change_pct = float(price_change_day / day_open * 100) if day_open > 0 else 0.0
         
         # 9. Generate Trade Signal
         signals = []
