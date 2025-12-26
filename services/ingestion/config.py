@@ -28,15 +28,16 @@ class Config:
         # KiteConnect
         self.KITE_API_KEY: str = self._get_required("KITE_API_KEY")
         
-        # Database (for instruments)
+        # Database (for instruments) - MUST be set before loading instruments
         self.DATABASE_URL: str = self._get_required("DATABASE_URL")
-        
-        # Instruments to track - loaded from database
-        self.INSTRUMENTS: List[int] = self._load_instruments_from_db()
         
         # Logging
         self.LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
         
+        # Instruments to track - loaded from database (after DATABASE_URL is set)
+        self.INSTRUMENTS: List[int] = self._load_instruments_from_db()
+        
+
         # Validate configuration
         self._validate()
     
@@ -66,9 +67,6 @@ class Config:
             
             tokens = [row[0] for row in cursor.fetchall()]
             
-            cursor.close()
-            conn.close()
-            
             if not tokens:
                 logger.warning(
                     "no_active_instruments",
@@ -96,6 +94,18 @@ class Config:
                 f"Failed to load instruments from database and no INSTRUMENTS in .env. "
                 f"Database error: {e}"
             )
+        finally:
+            # Always cleanup connections
+            if 'cursor' in locals():
+                try:
+                    cursor.close()
+                except:
+                    pass
+            if 'conn' in locals():
+                try:
+                    conn.close()
+                except:
+                    pass
     
     def _validate(self):
         """Validate configuration values"""

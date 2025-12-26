@@ -64,18 +64,30 @@ def load_instruments_cache(database_url: str, redis_client: Optional[redis.Redis
                 logger.error("instrument_parse_failed", row=row, error=str(e))
                 continue
         
-        cursor.close()
-        conn.close()
-        
         logger.info(
             "instruments_cache_loaded_from_db",
             total_instruments=len(instruments_cache)
         )
         
+        cursor.close()
+        conn.close()
+        
         return instruments_cache
     
     except psycopg2.Error as db_error:
         logger.error("db_load_failed", error=str(db_error))
+        
+        # Cleanup connections before fallback
+        if 'cursor' in locals():
+            try:
+                cursor.close()
+            except:
+                pass
+        if 'conn' in locals():
+            try:
+                conn.close()
+            except:
+                pass
         
         # Fallback to Redis if database fails
         if redis_client:
@@ -122,6 +134,9 @@ def load_instruments_cache(database_url: str, redis_client: Optional[redis.Redis
         else:
             logger.error("no_fallback_available", message="Database failed and no Redis client provided")
             return {}
+    
+    # If we reach here without returning, DB succeeded
+    return instruments_cache
 
 
 def enrich_tick(

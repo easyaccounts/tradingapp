@@ -403,6 +403,8 @@ def _bulk_insert_fallback(ticks: List[Dict]) -> int:
             'volume_delta', 'oi_delta', 'aggressor_side', 'cvd_change',
             'buy_quantity_delta', 'sell_quantity_delta', 'mid_price_calc',
             'bid_depth_total', 'ask_depth_total', 'depth_imbalance_ratio', 'price_delta',
+            # Orderflow toxicity metrics
+            'consumption_rate', 'flow_intensity', 'depth_toxicity_tick', 'kyle_lambda_tick',
             # Legacy fields
             'bid_ask_spread', 'mid_price', 'order_imbalance'
         ]
