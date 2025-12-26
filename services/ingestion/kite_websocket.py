@@ -155,16 +155,17 @@ class KiteWebSocketHandler:
                     depth = MarketDepth(buy=buy_depth, sell=sell_depth)
                 
                 # Create KiteTick model
+                # Field names match exactly what KiteTicker library returns
                 tick = KiteTick(
                     tradable=raw_tick_data.get('tradable', True),
                     mode=raw_tick_data.get('mode', 'quote'),
                     instrument_token=raw_tick_data['instrument_token'],
                     last_price=raw_tick_data.get('last_price'),
-                    last_traded_quantity=raw_tick_data.get('last_quantity'),
-                    average_traded_price=raw_tick_data.get('average_price'),
-                    volume_traded=raw_tick_data.get('volume'),
-                    total_buy_quantity=raw_tick_data.get('buy_quantity'),
-                    total_sell_quantity=raw_tick_data.get('sell_quantity'),
+                    last_traded_quantity=raw_tick_data.get('last_traded_quantity'),
+                    average_traded_price=raw_tick_data.get('average_traded_price'),
+                    volume_traded=raw_tick_data.get('volume_traded'),
+                    total_buy_quantity=raw_tick_data.get('total_buy_quantity'),
+                    total_sell_quantity=raw_tick_data.get('total_sell_quantity'),
                     ohlc=raw_tick_data.get('ohlc'),
                     change=raw_tick_data.get('change'),
                     last_trade_time=raw_tick_data.get('last_trade_time'),
