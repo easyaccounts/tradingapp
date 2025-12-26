@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
-from routes import kite, health
+from routes import kite, health, orderflow
 
 # Configure logging
 logging.basicConfig(
@@ -69,6 +69,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, tags=["health"])
 app.include_router(kite.router, prefix="/api/kite", tags=["kite"])
+app.include_router(orderflow.router, prefix="/api", tags=["orderflow"])
 
 # Mount Prometheus metrics endpoint
 metrics_app = make_asgi_app()

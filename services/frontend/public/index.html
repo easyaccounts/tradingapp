@@ -74,6 +74,11 @@
             display: inline-block;
             transition: transform 0.2s, box-shadow 0.2s;
             font-weight: 600;
+            margin: 10px;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         }
 
         .btn:hover {
@@ -81,8 +86,20 @@
             box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
         }
 
+        .btn-secondary:hover {
+            box-shadow: 0 10px 25px rgba(245, 87, 108, 0.4);
+        }
+
         .btn:active {
             transform: translateY(0);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin: 20px 0;
         }
 
         .features {
@@ -134,7 +151,10 @@
             Connect your Zerodha account to start ingesting real-time F&O market data
         </p>
         
-        <a href="/login.html" class="btn">Connect Kite</a>
+        <div class="button-group">
+            <a href="/login.html" class="btn">🔐 Connect Kite</a>
+            <a href="/dashboard.html" class="btn btn-secondary">📊 Dashboard</a>
+        </div>
         
         <div class="features">
             <div class="feature">
