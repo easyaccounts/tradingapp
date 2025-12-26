@@ -78,7 +78,7 @@ async def get_orderflow_analysis(
         if not latest:
             raise HTTPException(status_code=404, detail=f"No data found for instrument {instrument_token}")
         
-        # 2. Calculate CVD (3-min and 15-min) using volume delta with aggressor side
+        # 2. Calculate CVD (full day) using volume delta with aggressor side
         cvd_data = await conn.fetch("""
             SELECT 
                 time,
@@ -90,13 +90,12 @@ async def get_orderflow_analysis(
                 total_sell_quantity
             FROM ticks
             WHERE instrument_token = $1 
-                AND time >= $2
+                AND time >= DATE_TRUNC('day', NOW())
             ORDER BY time ASC
-        """, instrument_token, time_15m)
+        """, instrument_token)
         
         # Calculate CVD using volume delta with aggressor side detection
-        cvd_3m = 0.0
-        cvd_15m = 0.0
+        cvd_day = 0.0
         prev_volume = None
         
         for row in cvd_data:
@@ -127,11 +126,7 @@ async def get_orderflow_analysis(
                     else:
                         cvd_change = -volume_delta
                 
-                cvd_15m += cvd_change
-                
-                # Only add to 3m if within window
-                if row['time'] >= time_3m:
-                    cvd_3m += cvd_change
+                cvd_day += cvd_change
             
             prev_volume = current_volume if current_volume > 0 else prev_volume
         
@@ -142,17 +137,15 @@ async def get_orderflow_analysis(
                 SUBSTRING(trading_symbol FROM 'NIFTY\\d{2}[A-Z]{3}\\d{2}') as expiry_code
             FROM ticks
             WHERE (trading_symbol LIKE 'NIFTY%CE' OR trading_symbol LIKE 'NIFTY%PE')
-                AND time >= $1
+                AND time >= DATE_TRUNC('day', NOW())
             ORDER BY expiry_code ASC
             LIMIT 2
-        """, time_15m)
+        """)
         
         expiry_codes = [row['expiry_code'] for row in expiries if row['expiry_code']]
         
-        calls_cvd_3m = 0.0
-        calls_cvd_15m = 0.0
-        puts_cvd_3m = 0.0
-        puts_cvd_15m = 0.0
+        calls_cvd_day = 0.0
+        puts_cvd_day = 0.0
         
         if expiry_codes:
             # Build pattern for options
@@ -170,9 +163,9 @@ async def get_orderflow_analysis(
                     total_sell_quantity
                 FROM ticks
                 WHERE trading_symbol ~ $1
-                    AND time >= $2
+                    AND time >= DATE_TRUNC('day', NOW())
                 ORDER BY time ASC
-            """, f'NIFTY.*({expiry_patterns}).*CE$', time_15m)
+            """, f'NIFTY.*({expiry_patterns}).*CE$')
             
             # Calculate Puts CVD
             puts_data = await conn.fetch("""
@@ -186,9 +179,9 @@ async def get_orderflow_analysis(
                     total_sell_quantity
                 FROM ticks
                 WHERE trading_symbol ~ $1
-                    AND time >= $2
+                    AND time >= DATE_TRUNC('day', NOW())
                 ORDER BY time ASC
-            """, f'NIFTY.*({expiry_patterns}).*PE$', time_15m)
+            """, f'NIFTY.*({expiry_patterns}).*PE$')
             
             # Process Calls
             prev_vol = {}
@@ -214,9 +207,7 @@ async def get_orderflow_analysis(
                         sell_qty = float(row['total_sell_quantity'] or 0)
                         cvd_inc = 1 if buy_qty > sell_qty else -1
                     
-                    calls_cvd_15m += cvd_inc
-                    if row['time'] >= time_3m:
-                        calls_cvd_3m += cvd_inc
+                    calls_cvd_day += cvd_inc
             
             # Process Puts
             for row in puts_data:
@@ -238,13 +229,10 @@ async def get_orderflow_analysis(
                         sell_qty = float(row['total_sell_quantity'] or 0)
                         cvd_inc = 1 if buy_qty > sell_qty else -1
                     
-                    puts_cvd_15m += cvd_inc
-                    if row['time'] >= time_3m:
-                        puts_cvd_3m += cvd_inc
+                    puts_cvd_day += cvd_inc
         
         # Calculate net options CVD (ensure proper types)
-        net_options_3m = float(calls_cvd_3m) - float(puts_cvd_3m)
-        net_options_15m = float(calls_cvd_15m) - float(puts_cvd_15m)
+        net_options_day = float(calls_cvd_day) - float(puts_cvd_day)
         
         # 3. Calculate Imbalance (current + 30s avg)
         imbalance_data = await conn.fetch("""
@@ -385,10 +373,10 @@ async def get_orderflow_analysis(
         # 9. Generate Trade Signal
         signals = []
         
-        # Signal 1: CVD (3-min)
-        if cvd_3m > 0:
+        # Signal 1: CVD (day)
+        if cvd_day > 0:
             signals.append(1)  # Bullish
-        elif cvd_3m < 0:
+        elif cvd_day < 0:
             signals.append(-1)  # Bearish
         else:
             signals.append(0)  # Neutral
@@ -461,25 +449,20 @@ async def get_orderflow_analysis(
                 "bearish_signals": bearish_count
             },
             "cvd": {
-                "cvd_3min": round(float(cvd_3m), 2),
-                "cvd_15min": round(float(cvd_15m), 2)
+                "cvd_day": round(float(cvd_day), 2)
             },
             "cvd_segmented": {
                 "futures": {
-                    "cvd_3min": round(float(cvd_3m), 2),
-                    "cvd_15min": round(float(cvd_15m), 2)
+                    "cvd_day": round(float(cvd_day), 2)
                 },
                 "calls": {
-                    "cvd_3min": round(float(calls_cvd_3m), 2),
-                    "cvd_15min": round(float(calls_cvd_15m), 2)
+                    "cvd_day": round(float(calls_cvd_day), 2)
                 },
                 "puts": {
-                    "cvd_3min": round(float(puts_cvd_3m), 2),
-                    "cvd_15min": round(float(puts_cvd_15m), 2)
+                    "cvd_day": round(float(puts_cvd_day), 2)
                 },
                 "net_options": {
-                    "cvd_3min": round(float(net_options_3m), 2),
-                    "cvd_15min": round(float(net_options_15m), 2)
+                    "cvd_day": round(float(net_options_day), 2)
                 }
             },
             "imbalance": {
