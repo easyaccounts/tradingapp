@@ -387,12 +387,11 @@
 
     <script>
         const API_BASE = '';
-        const INSTRUMENT_TOKEN = 12683010; // NIFTY FUT
         let updateInterval;
 
         async function fetchDashboardData() {
             try {
-                const response = await fetch(`${API_BASE}/api/orderflow?instrument_token=${INSTRUMENT_TOKEN}`);
+                const response = await fetch(`${API_BASE}/api/orderflow`);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -408,21 +407,19 @@
         }
 
         function updateDashboard(data) {
-            updateMarketOverview(data.market_overview);
-            updateTradeSignal(data.trade_signal);
+            // New API returns data in different structure
+            updateMarketOverview(data.market_overview, data.metadata);
             updateCVD(data.cvd);
             updateImbalance(data.imbalance);
-            updateOI(data.oi_pattern);
-            updateVWAP(data.vwap);
+            updateOI(data.oi_changes);
             updateVolume(data.volume);
-            updateOrderBook(data.order_book);
         }
 
-        function updateMarketOverview(data) {
+        function updateMarketOverview(data, metadata) {
             const html = `
                 <div>
                     <div class="label">Symbol</div>
-                    <div class="value">${data.symbol || 'NIFTY FUT'}</div>
+                    <div class="value">${data.symbol || 'NIFTY'}</div>
                 </div>
                 <div>
                     <div class="label">Price</div>
@@ -431,16 +428,8 @@
                     </div>
                 </div>
                 <div>
-                    <div class="label">Volume</div>
-                    <div class="value">${formatLargeNumber(data.volume)}</div>
-                </div>
-                <div>
-                    <div class="label">OI</div>
-                    <div class="value">${formatLargeNumber(data.oi)}</div>
-                </div>
-                <div>
-                    <div class="label">Day Range</div>
-                    <div class="value">${formatNumber(data.day_range)} pts</div>
+                    <div class="label">Instruments</div>
+                    <div class="value">${metadata.futures_count}F + ${metadata.calls_count}C + ${metadata.puts_count}P</div>
                 </div>
             `;
             document.getElementById('marketOverview').innerHTML = html;
@@ -457,17 +446,10 @@
         }
 
         function updateCVD(data) {
-            const cvdValue = data.cvd_day || 0;
+            // data now has: futures, calls, puts, net_options
+            const cvdValue = data.futures || 0;
             const status = cvdValue > 0 ? 'bullish' : cvdValue < 0 ? 'bearish' : 'neutral';
             const statusText = cvdValue > 0 ? 'BULLISH - Buyers Dominant' : cvdValue < 0 ? 'BEARISH - Sellers Dominant' : 'NEUTRAL';
-            
-            // Get segmented CVD data
-            const segmented = data.cvd_segmented || {
-                futures: {cvd_day: 0},
-                calls: {cvd_day: 0},
-                puts: {cvd_day: 0},
-                net_options: {cvd_day: 0}
-            };
             
             document.getElementById('cvdCard').innerHTML = `
                 <div class="signal-value ${status === 'bullish' ? 'positive' : status === 'bearish' ? 'negative' : 'neutral'}">
@@ -478,24 +460,24 @@
                     <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">SEGMENTED CVD (Today)</div>
                     <div class="metric-row">
                         <span class="metric-label">Futures</span>
-                        <span class="metric-value ${segmented.futures.cvd_day > 0 ? 'positive' : segmented.futures.cvd_day < 0 ? 'negative' : ''}">${segmented.futures.cvd_day > 0 ? '+' : ''}${formatNumber(segmented.futures.cvd_day)}</span>
+                        <span class="metric-value ${data.futures > 0 ? 'positive' : data.futures < 0 ? 'negative' : ''}">${data.futures > 0 ? '+' : ''}${formatNumber(data.futures)}</span>
                     </div>
                     <div class="metric-row">
                         <span class="metric-label">Calls</span>
-                        <span class="metric-value ${segmented.calls.cvd_day > 0 ? 'positive' : segmented.calls.cvd_day < 0 ? 'negative' : ''}">${segmented.calls.cvd_day > 0 ? '+' : ''}${formatNumber(segmented.calls.cvd_day)}</span>
+                        <span class="metric-value ${data.calls > 0 ? 'positive' : data.calls < 0 ? 'negative' : ''}">${data.calls > 0 ? '+' : ''}${formatNumber(data.calls)}</span>
                     </div>
                     <div class="metric-row">
                         <span class="metric-label">Puts</span>
-                        <span class="metric-value ${segmented.puts.cvd_day > 0 ? 'positive' : segmented.puts.cvd_day < 0 ? 'negative' : ''}">${segmented.puts.cvd_day > 0 ? '+' : ''}${formatNumber(segmented.puts.cvd_day)}</span>
+                        <span class="metric-value ${data.puts > 0 ? 'positive' : data.puts < 0 ? 'negative' : ''}">${data.puts > 0 ? '+' : ''}${formatNumber(data.puts)}</span>
                     </div>
                     <div class="metric-row" style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 6px; margin-top: 6px;">
                         <span class="metric-label" style="font-weight: 600;">Net Options</span>
-                        <span class="metric-value ${segmented.net_options.cvd_day > 0 ? 'positive' : segmented.net_options.cvd_day < 0 ? 'negative' : ''}" style="font-weight: 600;">${segmented.net_options.cvd_day > 0 ? '+' : ''}${formatNumber(segmented.net_options.cvd_day)}</span>
+                        <span class="metric-value ${data.net_options > 0 ? 'positive' : data.net_options < 0 ? 'negative' : ''}" style="font-weight: 600;">${data.net_options > 0 ? '+' : ''}${formatNumber(data.net_options)}</span>
                     </div>
                 </div>
                 
                 <div class="metric-row">
-                    <span class="metric-label">Cumulative (Today)</span>
+                    <span class="metric-label">Total CVD (Today)</span>
                     <span class="metric-value ${status === 'bullish' ? 'positive' : status === 'bearish' ? 'negative' : ''}">${cvdValue > 0 ? '+' : ''}${formatNumber(cvdValue)}</span>
                 </div>
                 <div class="signal-status status-${status}">${statusText}</div>
@@ -503,121 +485,82 @@
         }
 
         function updateImbalance(data) {
-            const status = data.ratio > 1.5 ? 'bullish' : data.ratio < 0.67 ? 'bearish' : 'neutral';
-            const statusText = data.ratio > 1.5 ? '🟢 STRONG BUY PRESSURE' : data.ratio < 0.67 ? '🔴 STRONG SELL PRESSURE' : '⚪ BALANCED';
+            // data now has: futures, calls, puts with bid_value, ask_value, ratio
+            const futuresRatio = data.futures.ratio || 1;
+            const status = futuresRatio > 1.5 ? 'bullish' : futuresRatio < 0.67 ? 'bearish' : 'neutral';
+            const statusText = futuresRatio > 1.5 ? '🟢 STRONG BUY PRESSURE' : futuresRatio < 0.67 ? '🔴 STRONG SELL PRESSURE' : '⚪ BALANCED';
             
             document.getElementById('imbalanceCard').innerHTML = `
-                <div class="signal-value">${data.ratio.toFixed(2)}</div>
-                <div class="metric-row">
-                    <span class="metric-label">Bid Quantity</span>
-                    <span class="metric-value positive">${formatNumber(data.bid_qty)}</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">Ask Quantity</span>
-                    <span class="metric-value negative">${formatNumber(data.ask_qty)}</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">30s Avg Ratio</span>
-                    <span class="metric-value">${data.avg_ratio_30s.toFixed(2)}</span>
+                <div class="signal-value">${futuresRatio.toFixed(2)}</div>
+                <div style="margin: 12px 0; padding: 8px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">BID/ASK RATIOS</div>
+                    <div class="metric-row">
+                        <span class="metric-label">Futures</span>
+                        <span class="metric-value">${data.futures.ratio.toFixed(2)}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Calls</span>
+                        <span class="metric-value">${data.calls.ratio.toFixed(2)}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Puts</span>
+                        <span class="metric-value">${data.puts.ratio.toFixed(2)}</span>
+                    </div>
                 </div>
                 <div class="signal-status status-${status}">${statusText}</div>
             `;
         }
 
         function updateOI(data) {
-            const patternEmoji = data.pattern.includes('BUILDUP') ? '⬆️' : data.pattern.includes('COVERING') ? '⬆️' : data.pattern.includes('UNWINDING') ? '⬇️' : '↔️';
+            // data now has: futures, calls, puts, total
+            const totalChange = data.total || 0;
             
             document.getElementById('oiCard').innerHTML = `
-                <div class="signal-value">${formatLargeNumber(data.oi)}</div>
-                <div class="metric-row">
-                    <span class="metric-label">OI Change (1m)</span>
-                    <span class="metric-value ${data.oi_change > 0 ? 'positive' : 'negative'}">${data.oi_change > 0 ? '+' : ''}${formatNumber(data.oi_change)}</span>
+                <div class="signal-value">${formatNumber(totalChange)}</div>
+                <div style="margin: 12px 0; padding: 8px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">OI CHANGES (Today)</div>
+                    <div class="metric-row">
+                        <span class="metric-label">Futures</span>
+                        <span class="metric-value ${data.futures > 0 ? 'positive' : 'negative'}">${data.futures > 0 ? '+' : ''}${formatNumber(data.futures)}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Calls</span>
+                        <span class="metric-value ${data.calls > 0 ? 'positive' : 'negative'}">${data.calls > 0 ? '+' : ''}${formatNumber(data.calls)}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Puts</span>
+                        <span class="metric-value ${data.puts > 0 ? 'positive' : 'negative'}">${data.puts > 0 ? '+' : ''}${formatNumber(data.puts)}</span>
+                    </div>
                 </div>
                 <div class="metric-row">
-                    <span class="metric-label">Pattern</span>
-                    <span class="metric-value">${patternEmoji} ${data.pattern}</span>
+                    <span class="metric-label">Total OI Change</span>
+                    <span class="metric-value ${totalChange > 0 ? 'positive' : 'negative'}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}</span>
                 </div>
-                <div class="signal-status ${data.pattern.includes('BUILDUP') ? 'status-bullish' : data.pattern.includes('UNWINDING') ? 'status-bearish' : 'status-neutral'}">
-                    ${data.interpretation}
-                </div>
-            `;
-        }
-
-        function updateVWAP(data) {
-            const status = data.position === 'ABOVE' ? 'bullish' : 'bearish';
-            const statusText = data.position === 'ABOVE' ? '🟢 ABOVE VWAP - Bullish' : '🔴 BELOW VWAP - Bearish';
-            
-            document.getElementById('vwapCard').innerHTML = `
-                <div class="signal-value">${formatNumber(data.price)}</div>
-                <div class="metric-row">
-                    <span class="metric-label">Current Price</span>
-                    <span class="metric-value">${formatNumber(data.price)}</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">VWAP</span>
-                    <span class="metric-value">${formatNumber(data.vwap)}</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">Deviation</span>
-                    <span class="metric-value ${data.deviation > 0 ? 'positive' : 'negative'}">${data.deviation > 0 ? '+' : ''}${data.deviation_pct}%</span>
-                </div>
-                <div class="signal-status status-${status}">${statusText}</div>
             `;
         }
 
         function updateVolume(data) {
-            const maxVolume = Math.max(...data.volumes);
-            const volumeHtml = data.volumes.map((vol, idx) => {
-                const percentage = (vol / maxVolume) * 100;
-                const isSpike = vol > data.avg_volume * 1.5;
-                return `
-                    <div>
-                        <div class="volume-label">
-                            <span>${data.times[idx]}</span>
-                            <span>${formatLargeNumber(vol)}</span>
-                        </div>
-                        <div class="volume-bar">
-                            <div class="volume-bar-fill ${isSpike ? 'volume-spike' : ''}" style="width: ${percentage}%">
-                                ${isSpike ? '⚡' : ''}
-                            </div>
-                        </div>
+            // data now has: futures, calls, puts, total
+            const totalVol = data.total || 0;
+            
+            document.getElementById('volumeCard').innerHTML = `
+                <div class="signal-value">${formatLargeNumber(totalVol)}</div>
+                <div style="margin: 12px 0; padding: 8px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">VOLUME BREAKDOWN (Today)</div>
+                    <div class="metric-row">
+                        <span class="metric-label">Futures</span>
+                        <span class="metric-value">${formatLargeNumber(data.futures)}</span>
                     </div>
-                `;
-            }).join('');
-            
-            document.getElementById('volumeCard').innerHTML = volumeHtml;
-        }
-
-        function updateOrderBook(data) {
-            let html = '<div class="order-book">';
-            
-            // Asks (in reverse order)
-            for (let i = data.ask_prices.length - 1; i >= 0; i--) {
-                html += `
-                    <div class="order-book-row ${i === 0 ? 'best-ask' : ''}">
-                        <div>${formatNumber(data.ask_prices[i])}</div>
-                        <div>${formatNumber(data.ask_quantities[i])}</div>
-                        <div>(${data.ask_orders[i]})</div>
+                    <div class="metric-row">
+                        <span class="metric-label">Calls</span>
+                        <span class="metric-value">${formatLargeNumber(data.calls)}</span>
                     </div>
-                `;
-            }
-            
-            // Spread
-            html += `<div class="spread-row">SPREAD: ${data.spread.toFixed(2)}</div>`;
-            
-            // Bids
-            for (let i = 0; i < data.bid_prices.length; i++) {
-                html += `
-                    <div class="order-book-row ${i === 0 ? 'best-bid' : ''}">
-                        <div>${formatNumber(data.bid_prices[i])}</div>
-                        <div>${formatNumber(data.bid_quantities[i])}</div>
-                        <div>(${data.bid_orders[i]})</div>
+                    <div class="metric-row">
+                        <span class="metric-label">Puts</span>
+                        <span class="metric-value">${formatLargeNumber(data.puts)}</span>
                     </div>
-                `;
-            }
-            
-            html += '</div>';
-            document.getElementById('orderBookCard').innerHTML = html;
+                </div>
+            `;
         }
 
         function showError(message) {
@@ -646,7 +589,7 @@
 
         async function fetchHistoricalData() {
             try {
-                const response = await fetch(`${API_BASE}/api/orderflow/history?instrument_token=${INSTRUMENT_TOKEN}`);
+                const response = await fetch(`${API_BASE}/api/orderflow/history`);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -654,15 +597,11 @@
                 
                 const data = await response.json();
                 
-                updatePriceAction(data.price_action);
-                updateVolumeProfile(data.volume_profile);
-                updateOIEvolution(data.oi_evolution);
-                updateKeyLevels(data.key_levels);
-                updateDayStats(data.day_stats);
+                // Historical endpoint will need to be updated separately or disabled for now
+                console.log('Historical data:', data);
                 
             } catch (error) {
                 console.error('Historical data fetch error:', error);
-                document.getElementById('priceActionCard').innerHTML = '<div class="error">Failed to load historical data</div>';
             }
         }
 

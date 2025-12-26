@@ -61,7 +61,20 @@ CREATE TABLE ticks (
     tradable BOOLEAN DEFAULT TRUE,
     mode TEXT, -- 'quote', 'ltp', 'full'
     
-    -- Derived fields (calculated during enrichment)
+    -- Pre-calculated metrics (computed at ingestion for performance)
+    volume_delta BIGINT,                -- Change in volume from previous tick
+    oi_delta BIGINT,                    -- Change in OI from previous tick
+    aggressor_side VARCHAR(7),          -- 'BUY', 'SELL', 'NEUTRAL'
+    cvd_change BIGINT,                  -- Signed volume delta for CVD calculation
+    buy_quantity_delta BIGINT,          -- Change in total_buy_quantity
+    sell_quantity_delta BIGINT,         -- Change in total_sell_quantity
+    mid_price_calc NUMERIC(12, 2),      -- (best_bid + best_ask) / 2
+    bid_depth_total BIGINT,             -- Sum of all bid quantities
+    ask_depth_total BIGINT,             -- Sum of all ask quantities
+    depth_imbalance_ratio NUMERIC(8, 4), -- bid_depth_total / ask_depth_total
+    price_delta NUMERIC(12, 2),         -- Change in price from previous tick
+    
+    -- Legacy derived fields (kept for backward compatibility)
     bid_ask_spread NUMERIC(12, 2),      -- ask[0] - bid[0]
     mid_price NUMERIC(12, 2),           -- (bid[0] + ask[0]) / 2
     order_imbalance BIGINT,             -- total_buy_quantity - total_sell_quantity

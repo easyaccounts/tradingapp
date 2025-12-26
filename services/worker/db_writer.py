@@ -6,7 +6,7 @@ Handles bulk inserts to TimescaleDB for optimal performance
 import os
 import io
 import structlog
-from typing import List, Dict
+from typing import List, Dict, Optional
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
@@ -18,6 +18,10 @@ logger = structlog.get_logger()
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Cache for previous tick state per instrument (for delta calculations)
+# Key: instrument_token, Value: previous tick dict
+_previous_ticks: Dict[int, Dict] = {}
 
 # Create SQLAlchemy engine with connection pooling
 engine = create_engine(
@@ -34,6 +38,139 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def calculate_tick_metrics(tick: Dict, previous_tick: Optional[Dict]) -> Dict:
+    """
+    Calculate pre-computed metrics for a tick
+    
+    Args:
+        tick: Current tick data
+        previous_tick: Previous tick for this instrument (None if first tick)
+    
+    Returns:
+        Dict with calculated metric fields
+    """
+    metrics = {}
+    
+    # Extract current values
+    current_volume = tick.get('volume_traded', 0) or 0
+    current_oi = tick.get('oi', 0) or 0
+    current_price = float(tick.get('last_price', 0) or 0)
+    current_buy_qty = tick.get('total_buy_quantity', 0) or 0
+    current_sell_qty = tick.get('total_sell_quantity', 0) or 0
+    
+    # Get bid/ask arrays
+    bid_prices = tick.get('bid_prices', [])
+    ask_prices = tick.get('ask_prices', [])
+    bid_quantities = tick.get('bid_quantities', [])
+    ask_quantities = tick.get('ask_quantities', [])
+    
+    # Safe array access
+    best_bid = float(bid_prices[0]) if bid_prices and bid_prices[0] else 0.0
+    best_ask = float(ask_prices[0]) if ask_prices and ask_prices[0] else 0.0
+    
+    # 1. volume_delta
+    if previous_tick:
+        prev_volume = previous_tick.get('volume_traded', 0) or 0
+        metrics['volume_delta'] = max(0, current_volume - prev_volume)
+    else:
+        metrics['volume_delta'] = 0
+    
+    # 2. oi_delta
+    if previous_tick:
+        prev_oi = previous_tick.get('oi', 0) or 0
+        metrics['oi_delta'] = current_oi - prev_oi
+    else:
+        metrics['oi_delta'] = 0
+    
+    # 3 & 4. aggressor_side and cvd_change using Lee-Ready + EMO
+    aggressor = 'NEUTRAL'
+    
+    if metrics['volume_delta'] > 0 and current_price > 0:
+        # Step 1: Quote Rule with EMO depth-weighted midpoint
+        if best_ask > 0 and current_price >= best_ask:
+            # Trade at or above ask - clear BUY aggressor
+            aggressor = 'BUY'
+        elif best_bid > 0 and current_price <= best_bid:
+            # Trade at or below bid - clear SELL aggressor
+            aggressor = 'SELL'
+        elif best_bid > 0 and best_ask > 0:
+            # Trade within spread - use EMO depth-weighted midpoint
+            bid_qty = bid_quantities[0] if bid_quantities and bid_quantities[0] else 0
+            ask_qty = ask_quantities[0] if ask_quantities and ask_quantities[0] else 0
+            
+            if bid_qty + ask_qty > 0:
+                # EMO: Weight by opposite side depth
+                weighted_mid = (best_bid * ask_qty + best_ask * bid_qty) / (bid_qty + ask_qty)
+            else:
+                # Fallback to simple midpoint if no depth data
+                weighted_mid = (best_bid + best_ask) / 2.0
+            
+            # Compare price to weighted midpoint
+            if abs(current_price - weighted_mid) < 0.01:
+                # At weighted midpoint - use tick rule (Step 2)
+                if previous_tick:
+                    prev_price = float(previous_tick.get('last_price', 0) or 0)
+                    if prev_price > 0:
+                        if current_price > prev_price:
+                            aggressor = 'BUY'   # Uptick
+                        elif current_price < prev_price:
+                            aggressor = 'SELL'  # Downtick
+                        else:
+                            # Zero tick - inherit from previous aggressor if available
+                            aggressor = previous_tick.get('aggressor_side', 'NEUTRAL')
+                    else:
+                        aggressor = 'NEUTRAL'
+                else:
+                    aggressor = 'NEUTRAL'
+            else:
+                # Quote rule decisive
+                aggressor = 'BUY' if current_price > weighted_mid else 'SELL'
+    
+    metrics['aggressor_side'] = aggressor
+    metrics['cvd_change'] = metrics['volume_delta'] if aggressor == 'BUY' else -metrics['volume_delta']
+    
+    # 5. buy_quantity_delta
+    if previous_tick:
+        prev_buy_qty = previous_tick.get('total_buy_quantity', 0) or 0
+        metrics['buy_quantity_delta'] = current_buy_qty - prev_buy_qty
+    else:
+        metrics['buy_quantity_delta'] = 0
+    
+    # 6. sell_quantity_delta
+    if previous_tick:
+        prev_sell_qty = previous_tick.get('total_sell_quantity', 0) or 0
+        metrics['sell_quantity_delta'] = current_sell_qty - prev_sell_qty
+    else:
+        metrics['sell_quantity_delta'] = 0
+    
+    # 7. mid_price_calc
+    if best_bid > 0 and best_ask > 0:
+        metrics['mid_price_calc'] = (best_bid + best_ask) / 2.0
+    else:
+        metrics['mid_price_calc'] = current_price
+    
+    # 8. bid_depth_total
+    metrics['bid_depth_total'] = sum(qty for qty in bid_quantities if qty) if bid_quantities else 0
+    
+    # 9. ask_depth_total
+    metrics['ask_depth_total'] = sum(qty for qty in ask_quantities if qty) if ask_quantities else 0
+    
+    # 10. depth_imbalance_ratio
+    if metrics['ask_depth_total'] > 0:
+        metrics['depth_imbalance_ratio'] = metrics['bid_depth_total'] / metrics['ask_depth_total']
+    else:
+        metrics['depth_imbalance_ratio'] = 0.0
+    
+    # 11. price_delta
+    if previous_tick:
+        prev_price = float(previous_tick.get('last_price', 0) or 0)
+        metrics['price_delta'] = current_price - prev_price
+    else:
+        metrics['price_delta'] = 0.0
+    
+    return metrics
+
+
 def get_db_engine():
     """
     Get SQLAlchemy database engine
@@ -47,6 +184,7 @@ def get_db_engine():
 def bulk_insert_ticks(ticks: List[Dict]) -> int:
     """
     Bulk insert ticks using PostgreSQL execute_batch with ON CONFLICT
+    Calculates and adds pre-computed metrics before insertion.
     
     Deduplicates ticks in-memory (same time + instrument_token) and uses
     ON CONFLICT DO UPDATE to handle cross-batch duplicates gracefully.
@@ -60,15 +198,39 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
     Raises:
         Exception: If insert fails
     """
+    global _previous_ticks
+    
     if not ticks:
         logger.warning("bulk_insert_called_with_empty_list")
         return 0
     
-    # Deduplicate within batch: keep latest tick per (time, instrument_token)
+    # Sort by time to ensure correct ordering for delta calculations
+    ticks_sorted = sorted(ticks, key=lambda t: (t.get('time', datetime.min), t.get('instrument_token', 0)))
+    
+    # Calculate metrics and deduplicate
+    enriched_ticks = []
     deduped = {}
-    for tick in ticks:
-        key = (tick.get('time'), tick.get('instrument_token'))
-        deduped[key] = tick
+    
+    for tick in ticks_sorted:
+        instrument_token = tick.get('instrument_token')
+        if not instrument_token:
+            continue
+        
+        # Get previous tick for this instrument
+        prev_tick = _previous_ticks.get(instrument_token)
+        
+        # Calculate metrics
+        metrics = calculate_tick_metrics(tick, prev_tick)
+        
+        # Merge metrics into tick
+        enriched_tick = {**tick, **metrics}
+        
+        # Deduplicate: keep latest tick per (time, instrument_token)
+        key = (tick.get('time'), instrument_token)
+        deduped[key] = enriched_tick
+        
+        # Update previous tick cache
+        _previous_ticks[instrument_token] = tick
     
     ticks_to_insert = list(deduped.values())
     original_count = len(ticks)
@@ -87,7 +249,7 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
         conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
         
-        # Column order matching database schema
+        # Column order matching database schema (with new pre-calculated metrics)
         columns = [
             'time', 'last_trade_time', 'instrument_token', 'trading_symbol',
             'exchange', 'instrument_type', 'last_price', 'last_traded_quantity',
@@ -95,8 +257,13 @@ def bulk_insert_ticks(ticks: List[Dict]) -> int:
             'oi_day_low', 'day_open', 'day_high', 'day_low', 'day_close',
             'change', 'change_percent', 'total_buy_quantity', 'total_sell_quantity',
             'bid_prices', 'bid_quantities', 'bid_orders', 'ask_prices',
-            'ask_quantities', 'ask_orders', 'tradable', 'mode', 'bid_ask_spread',
-            'mid_price', 'order_imbalance'
+            'ask_quantities', 'ask_orders', 'tradable', 'mode',
+            # Pre-calculated metrics
+            'volume_delta', 'oi_delta', 'aggressor_side', 'cvd_change',
+            'buy_quantity_delta', 'sell_quantity_delta', 'mid_price_calc',
+            'bid_depth_total', 'ask_depth_total', 'depth_imbalance_ratio', 'price_delta',
+            # Legacy fields
+            'bid_ask_spread', 'mid_price', 'order_imbalance'
         ]
         
         # Build INSERT with ON CONFLICT DO NOTHING to skip duplicates
@@ -195,7 +362,7 @@ def _bulk_insert_fallback(ticks: List[Dict]) -> int:
         conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
         
-        # Column order matching database schema
+        # Column order matching database schema (with new pre-calculated metrics)
         columns = [
             'time', 'last_trade_time', 'instrument_token', 'trading_symbol',
             'exchange', 'instrument_type', 'last_price', 'last_traded_quantity',
@@ -203,8 +370,13 @@ def _bulk_insert_fallback(ticks: List[Dict]) -> int:
             'oi_day_low', 'day_open', 'day_high', 'day_low', 'day_close',
             'change', 'change_percent', 'total_buy_quantity', 'total_sell_quantity',
             'bid_prices', 'bid_quantities', 'bid_orders', 'ask_prices',
-            'ask_quantities', 'ask_orders', 'tradable', 'mode', 'bid_ask_spread',
-            'mid_price', 'order_imbalance'
+            'ask_quantities', 'ask_orders', 'tradable', 'mode',
+            # Pre-calculated metrics
+            'volume_delta', 'oi_delta', 'aggressor_side', 'cvd_change',
+            'buy_quantity_delta', 'sell_quantity_delta', 'mid_price_calc',
+            'bid_depth_total', 'ask_depth_total', 'depth_imbalance_ratio', 'price_delta',
+            # Legacy fields
+            'bid_ask_spread', 'mid_price', 'order_imbalance'
         ]
         
         # Build INSERT with ON CONFLICT DO NOTHING to skip duplicates

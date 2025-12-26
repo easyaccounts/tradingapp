@@ -3,7 +3,9 @@ from datetime import datetime, timedelta
 import asyncpg
 from redis import Redis
 import os
-from typing import List, Dict, Tuple
+import asyncio
+import time as time_module
+from typing import List, Dict, Tuple, Optional
 from enum import Enum
 
 router = APIRouter()
@@ -14,6 +16,11 @@ class TimeInterval(str, Enum):
     THIRTY_MIN = "30m"
     ONE_HOUR = "1h"
     ALL_DAY = "all"
+
+# Cache for instrument tokens (5 minute TTL)
+_instruments_cache: Optional[Tuple[List[int], List[int], List[int]]] = None
+_cache_timestamp: float = 0
+CACHE_TTL = 300  # 5 minutes
 
 # Redis connection
 def get_redis_client() -> Redis:
@@ -40,10 +47,19 @@ async def get_db_connection():
 def get_nifty_instruments_by_expiry(redis_client: Redis) -> Tuple[List[int], List[int], List[int]]:
     """
     Get NIFTY instrument tokens filtered by 2 nearest expiries
+    Uses caching to avoid repeated Redis scans
     
     Returns:
         Tuple of (futures_tokens, calls_tokens, puts_tokens)
     """
+    global _instruments_cache, _cache_timestamp
+    
+    # Check cache
+    current_time = time_module.time()
+    if _instruments_cache and (current_time - _cache_timestamp) < CACHE_TTL:
+        return _instruments_cache
+    
+    # Rebuild cache
     expiry_map = {}
     futures_list = []
     calls_list = []
@@ -87,12 +103,17 @@ def get_nifty_instruments_by_expiry(redis_client: Redis) -> Tuple[List[int], Lis
     calls_tokens = [token for token, expiry in calls_list if expiry in unique_expiries]
     puts_tokens = [token for token, expiry in puts_list if expiry in unique_expiries]
     
+    # Update cache
+    _instruments_cache = (futures_tokens, calls_tokens, puts_tokens)
+    _cache_timestamp = current_time
+    
     return futures_tokens, calls_tokens, puts_tokens
 
 
 async def calculate_cvd(conn, tokens: List[int], start_time: datetime) -> float:
     """
-    Calculate aggregated CVD for given tokens
+    Calculate aggregated CVD using pre-calculated cvd_change column
+    Much faster than window functions (simple SUM aggregation)
     
     Args:
         conn: Database connection
@@ -105,62 +126,21 @@ async def calculate_cvd(conn, tokens: List[int], start_time: datetime) -> float:
     if not tokens:
         return 0.0
     
-    data = await conn.fetch("""
-        SELECT 
-            time,
-            instrument_token,
-            volume_traded,
-            last_price,
-            bid_prices,
-            ask_prices
+    # Simple SUM query on pre-calculated cvd_change
+    result = await conn.fetchval("""
+        SELECT COALESCE(SUM(cvd_change), 0) as total_cvd
         FROM ticks
         WHERE instrument_token = ANY($1) 
             AND time >= $2
-        ORDER BY instrument_token, time ASC
+            AND cvd_change IS NOT NULL
     """, tokens, start_time)
     
-    cvd_total = 0.0
-    prev_volumes = {}  # Track previous volume per token
-    
-    for row in data:
-        token = row['instrument_token']
-        current_volume = float(row['volume_traded'] or 0)
-        last_price = float(row['last_price'] or 0)
-        bid_prices = row['bid_prices'] or []
-        ask_prices = row['ask_prices'] or []
-        
-        prev_volume = prev_volumes.get(token)
-        
-        if prev_volume is not None and current_volume > prev_volume and last_price > 0:
-            volume_delta = float(current_volume - prev_volume)
-            
-            best_bid = float(bid_prices[0]) if bid_prices and len(bid_prices) > 0 and bid_prices[0] else 0
-            best_ask = float(ask_prices[0]) if ask_prices and len(ask_prices) > 0 and ask_prices[0] else 0
-            
-            # Determine aggressor side
-            if best_ask > 0 and last_price >= best_ask:
-                cvd_change = volume_delta  # Buyer aggressor
-            elif best_bid > 0 and last_price <= best_bid:
-                cvd_change = -volume_delta  # Seller aggressor
-            else:
-                # Use mid-price comparison
-                if best_bid > 0 and best_ask > 0:
-                    mid_price = (best_bid + best_ask) / 2
-                    cvd_change = volume_delta if last_price > mid_price else -volume_delta
-                else:
-                    cvd_change = 0
-            
-            cvd_total += cvd_change
-        
-        if current_volume > 0:
-            prev_volumes[token] = current_volume
-    
-    return cvd_total
+    return float(result or 0.0)
 
 
 async def calculate_volume_and_oi(conn, tokens: List[int], start_time: datetime) -> Tuple[float, float]:
     """
-    Calculate aggregated volume and OI change
+    Calculate aggregated volume and OI change using pre-calculated deltas
     
     Returns:
         Tuple of (total_volume, oi_change)
@@ -168,47 +148,26 @@ async def calculate_volume_and_oi(conn, tokens: List[int], start_time: datetime)
     if not tokens:
         return 0.0, 0.0
     
-    data = await conn.fetchrow("""
+    result = await conn.fetchrow("""
         SELECT 
-            SUM(CASE 
-                WHEN latest.volume_traded IS NOT NULL AND earliest.volume_traded IS NOT NULL 
-                THEN latest.volume_traded - earliest.volume_traded 
-                ELSE 0 
-            END) as total_volume,
-            SUM(CASE 
-                WHEN latest.oi IS NOT NULL AND earliest.oi IS NOT NULL 
-                THEN latest.oi - earliest.oi 
-                ELSE 0 
-            END) as oi_change
-        FROM (
-            SELECT DISTINCT ON (instrument_token)
-                instrument_token,
-                volume_traded,
-                oi
-            FROM ticks
-            WHERE instrument_token = ANY($1) AND time >= $2
-            ORDER BY instrument_token, time DESC
-        ) latest
-        LEFT JOIN (
-            SELECT DISTINCT ON (instrument_token)
-                instrument_token,
-                volume_traded as earliest_volume,
-                oi as earliest_oi
-            FROM ticks
-            WHERE instrument_token = ANY($1) AND time >= $2
-            ORDER BY instrument_token, time ASC
-        ) earliest ON latest.instrument_token = earliest.instrument_token
+            COALESCE(SUM(volume_delta), 0) as total_volume,
+            COALESCE(SUM(oi_delta), 0) as oi_change
+        FROM ticks
+        WHERE instrument_token = ANY($1) AND time >= $2
     """, tokens, start_time)
     
-    total_volume = float(data['total_volume'] or 0)
-    oi_change = float(data['oi_change'] or 0)
+    if not result:
+        return 0.0, 0.0
+    
+    total_volume = float(result['total_volume'] or 0)
+    oi_change = float(result['oi_change'] or 0)
     
     return total_volume, oi_change
 
 
 async def calculate_order_book_imbalance(conn, tokens: List[int]) -> Tuple[float, float]:
     """
-    Calculate value-weighted order book imbalance
+    Calculate value-weighted order book imbalance using pre-calculated depth totals
     
     Returns:
         Tuple of (total_bid_value, total_ask_value)
@@ -216,15 +175,17 @@ async def calculate_order_book_imbalance(conn, tokens: List[int]) -> Tuple[float
     if not tokens:
         return 0.0, 0.0
     
-    # Get latest ticks for all tokens
+    # Get latest ticks for all tokens with pre-calculated depth
     data = await conn.fetch("""
         SELECT DISTINCT ON (instrument_token)
             instrument_token,
             last_price,
-            total_buy_quantity,
-            total_sell_quantity
+            bid_depth_total,
+            ask_depth_total
         FROM ticks
         WHERE instrument_token = ANY($1)
+            AND bid_depth_total IS NOT NULL
+            AND ask_depth_total IS NOT NULL
         ORDER BY instrument_token, time DESC
     """, tokens)
     
@@ -233,12 +194,12 @@ async def calculate_order_book_imbalance(conn, tokens: List[int]) -> Tuple[float
     
     for row in data:
         price = float(row['last_price'] or 0)
-        buy_qty = float(row['total_buy_quantity'] or 0)
-        sell_qty = float(row['total_sell_quantity'] or 0)
+        bid_depth = float(row['bid_depth_total'] or 0)
+        ask_depth = float(row['ask_depth_total'] or 0)
         
         if price > 0:
-            total_bid_value += buy_qty * price
-            total_ask_value += sell_qty * price
+            total_bid_value += bid_depth * price
+            total_ask_value += ask_depth * price
     
     return total_bid_value, total_ask_value
 
@@ -299,62 +260,89 @@ async def get_orderflow_analysis():
         price_change = current_price - day_open
         price_change_pct = (price_change / day_open * 100) if day_open > 0 else 0.0
         
-        # Calculate CVD for each category
-        futures_cvd = await calculate_cvd(conn, futures_tokens, day_start)
-        calls_cvd = await calculate_cvd(conn, calls_tokens, day_start)
-        puts_cvd = await calculate_cvd(conn, puts_tokens, day_start)
+        # Parallelize all calculations using asyncio.gather
+        results = await asyncio.gather(
+            calculate_cvd(conn, futures_tokens, day_start),
+            calculate_cvd(conn, calls_tokens, day_start),
+            calculate_cvd(conn, puts_tokens, day_start),
+            calculate_volume_and_oi(conn, futures_tokens, day_start),
+            calculate_volume_and_oi(conn, calls_tokens, day_start),
+            calculate_volume_and_oi(conn, puts_tokens, day_start),
+            calculate_order_book_imbalance(conn, futures_tokens),
+            calculate_order_book_imbalance(conn, calls_tokens),
+            calculate_order_book_imbalance(conn, puts_tokens)
+        )
         
-        # Calculate volume and OI changes
-        futures_volume, futures_oi_change = await calculate_volume_and_oi(conn, futures_tokens, day_start)
-        calls_volume, calls_oi_change = await calculate_volume_and_oi(conn, calls_tokens, day_start)
-        puts_volume, puts_oi_change = await calculate_volume_and_oi(conn, puts_tokens, day_start)
+        # Unpack results with explicit type hints
+        futures_cvd: float = results[0]  # type: ignore
+        calls_cvd: float = results[1]  # type: ignore
+        puts_cvd: float = results[2]  # type: ignore
         
-        # Calculate order book imbalance (value-weighted)
-        futures_bid_value, futures_ask_value = await calculate_order_book_imbalance(conn, futures_tokens)
-        calls_bid_value, calls_ask_value = await calculate_order_book_imbalance(conn, calls_tokens)
-        puts_bid_value, puts_ask_value = await calculate_order_book_imbalance(conn, puts_tokens)
+        futures_volume: float
+        futures_oi_change: float
+        futures_volume, futures_oi_change = results[3]  # type: ignore
+        
+        calls_volume: float
+        calls_oi_change: float
+        calls_volume, calls_oi_change = results[4]  # type: ignore
+        
+        puts_volume: float
+        puts_oi_change: float
+        puts_volume, puts_oi_change = results[5]  # type: ignore
+        
+        futures_bid_value: float
+        futures_ask_value: float
+        futures_bid_value, futures_ask_value = results[6]  # type: ignore
+        
+        calls_bid_value: float
+        calls_ask_value: float
+        calls_bid_value, calls_ask_value = results[7]  # type: ignore
+        
+        puts_bid_value: float
+        puts_ask_value: float
+        puts_bid_value, puts_ask_value = results[8]  # type: ignore
         
         # Construct response
         response = {
             "market_overview": {
                 "symbol": "NIFTY",
-                "price": round(float(current_price), 2),
-                "change": round(float(price_change), 2),
-                "change_pct": round(float(price_change_pct), 2)
+                "price": round(current_price, 2),
+                "change": round(price_change, 2),
+                "change_pct": round(price_change_pct, 2)
             },
             "cvd": {
-                "futures": round(float(futures_cvd), 2),
-                "calls": round(float(calls_cvd), 2),
-                "puts": round(float(puts_cvd), 2),
-                "net_options": round(float(calls_cvd - puts_cvd), 2)
+                "futures": round(futures_cvd, 2),
+                "calls": round(calls_cvd, 2),
+                "puts": round(puts_cvd, 2),
+                "net_options": round(calls_cvd - puts_cvd, 2)
             },
             "volume": {
-                "futures": round(float(futures_volume), 2),
-                "calls": round(float(calls_volume), 2),
-                "puts": round(float(puts_volume), 2),
-                "total": round(float(futures_volume + calls_volume + puts_volume), 2)
+                "futures": round(futures_volume, 2),
+                "calls": round(calls_volume, 2),
+                "puts": round(puts_volume, 2),
+                "total": round(futures_volume + calls_volume + puts_volume, 2)
             },
             "oi_changes": {
-                "futures": round(float(futures_oi_change), 2),
-                "calls": round(float(calls_oi_change), 2),
-                "puts": round(float(puts_oi_change), 2),
-                "total": round(float(futures_oi_change + calls_oi_change + puts_oi_change), 2)
+                "futures": round(futures_oi_change, 2),
+                "calls": round(calls_oi_change, 2),
+                "puts": round(puts_oi_change, 2),
+                "total": round(futures_oi_change + calls_oi_change + puts_oi_change, 2)
             },
             "imbalance": {
                 "futures": {
-                    "bid_value": round(float(futures_bid_value), 2),
-                    "ask_value": round(float(futures_ask_value), 2),
-                    "ratio": round(float(futures_bid_value / futures_ask_value if futures_ask_value > 0 else 0), 2)
+                    "bid_value": round(futures_bid_value, 2),
+                    "ask_value": round(futures_ask_value, 2),
+                    "ratio": round(futures_bid_value / futures_ask_value if futures_ask_value > 0 else 0, 2)
                 },
                 "calls": {
-                    "bid_value": round(float(calls_bid_value), 2),
-                    "ask_value": round(float(calls_ask_value), 2),
-                    "ratio": round(float(calls_bid_value / calls_ask_value if calls_ask_value > 0 else 0), 2)
+                    "bid_value": round(calls_bid_value, 2),
+                    "ask_value": round(calls_ask_value, 2),
+                    "ratio": round(calls_bid_value / calls_ask_value if calls_ask_value > 0 else 0, 2)
                 },
                 "puts": {
-                    "bid_value": round(float(puts_bid_value), 2),
-                    "ask_value": round(float(puts_ask_value), 2),
-                    "ratio": round(float(puts_bid_value / puts_ask_value if puts_ask_value > 0 else 0), 2)
+                    "bid_value": round(puts_bid_value, 2),
+                    "ask_value": round(puts_ask_value, 2),
+                    "ratio": round(puts_bid_value / puts_ask_value if puts_ask_value > 0 else 0, 2)
                 }
             },
             "metadata": {
