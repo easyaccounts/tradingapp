@@ -131,27 +131,24 @@ async def get_orderflow_analysis(
             prev_volume = current_volume if current_volume > 0 else prev_volume
         
         # 2B. Calculate Segmented CVD (Futures + Options for 2 nearest expiries)
-        # Get nearest 2 expiries for NIFTY options
-        expiries = await conn.fetch("""
-            SELECT DISTINCT 
-                SUBSTRING(trading_symbol FROM 'NIFTY\\d{2}[A-Z]{3}\\d{2}') as expiry_code
+        # Get 2 nearest expiry dates for NIFTY options
+        nearest_expiries = await conn.fetch("""
+            SELECT DISTINCT expiry
             FROM ticks
             WHERE (trading_symbol LIKE 'NIFTY%CE' OR trading_symbol LIKE 'NIFTY%PE')
+                AND expiry IS NOT NULL
                 AND time >= DATE_TRUNC('day', NOW())
-            ORDER BY expiry_code ASC
+            ORDER BY expiry ASC
             LIMIT 2
         """)
         
-        expiry_codes = [row['expiry_code'] for row in expiries if row['expiry_code']]
+        expiry_dates = [row['expiry'] for row in nearest_expiries]
         
         calls_cvd_day = 0.0
         puts_cvd_day = 0.0
         
-        if expiry_codes:
-            # Build pattern for options
-            expiry_patterns = '|'.join(expiry_codes)
-            
-            # Calculate Calls CVD
+        if expiry_dates:
+            # Query NIFTY Call options for 2 nearest expiries
             calls_data = await conn.fetch("""
                 SELECT 
                     time,
@@ -162,12 +159,13 @@ async def get_orderflow_analysis(
                     total_buy_quantity,
                     total_sell_quantity
                 FROM ticks
-                WHERE trading_symbol ~ $1
+                WHERE trading_symbol LIKE 'NIFTY%CE'
+                    AND expiry = ANY($1)
                     AND time >= DATE_TRUNC('day', NOW())
                 ORDER BY time ASC
-            """, f'NIFTY.*({expiry_patterns}).*CE$')
+            """, expiry_dates)
             
-            # Calculate Puts CVD
+            # Query NIFTY Put options for 2 nearest expiries
             puts_data = await conn.fetch("""
                 SELECT 
                     time,
@@ -178,58 +176,65 @@ async def get_orderflow_analysis(
                     total_buy_quantity,
                     total_sell_quantity
                 FROM ticks
-                WHERE trading_symbol ~ $1
+                WHERE trading_symbol LIKE 'NIFTY%PE'
+                    AND expiry = ANY($1)
                     AND time >= DATE_TRUNC('day', NOW())
                 ORDER BY time ASC
-            """, f'NIFTY.*({expiry_patterns}).*PE$')
+            """, expiry_dates)
+        else:
+            calls_data = []
+            puts_data = []
+        
+        calls_cvd_day = 0.0
+        puts_cvd_day = 0.0
+        
+        # Process Calls
+        prev_vol = {}
+        for row in calls_data:
+            vol = float(row['volume_traded'] or 0)
+            price = float(row['last_price'] or 0)
             
-            # Process Calls
-            prev_vol = {}
-            for row in calls_data:
-                vol = float(row['volume_traded'] or 0)
-                price = float(row['last_price'] or 0)
+            # Use some unique key per strike - simplified to use volume as proxy
+            if vol > 0 and price > 0:
+                # Calculate CVD change similar to futures
+                bid_prices = row['bid_prices'] or []
+                ask_prices = row['ask_prices'] or []
+                best_bid = float(bid_prices[0]) if bid_prices and len(bid_prices) > 0 and bid_prices[0] else 0
+                best_ask = float(ask_prices[0]) if ask_prices and len(ask_prices) > 0 and ask_prices[0] else 0
                 
-                # Use some unique key per strike - simplified to use volume as proxy
-                if vol > 0 and price > 0:
-                    # Calculate CVD change similar to futures
-                    bid_prices = row['bid_prices'] or []
-                    ask_prices = row['ask_prices'] or []
-                    best_bid = float(bid_prices[0]) if bid_prices and len(bid_prices) > 0 and bid_prices[0] else 0
-                    best_ask = float(ask_prices[0]) if ask_prices and len(ask_prices) > 0 and ask_prices[0] else 0
-                    
-                    # Simplified: accumulate based on aggressor side
-                    if best_ask > 0 and price >= best_ask:
-                        cvd_inc = 1  # Simplified increment
-                    elif best_bid > 0 and price <= best_bid:
-                        cvd_inc = -1
-                    else:
-                        buy_qty = float(row['total_buy_quantity'] or 0)
-                        sell_qty = float(row['total_sell_quantity'] or 0)
-                        cvd_inc = 1 if buy_qty > sell_qty else -1
-                    
-                    calls_cvd_day += cvd_inc
+                # Simplified: accumulate based on aggressor side
+                if best_ask > 0 and price >= best_ask:
+                    cvd_inc = 1  # Simplified increment
+                elif best_bid > 0 and price <= best_bid:
+                    cvd_inc = -1
+                else:
+                    buy_qty = float(row['total_buy_quantity'] or 0)
+                    sell_qty = float(row['total_sell_quantity'] or 0)
+                    cvd_inc = 1 if buy_qty > sell_qty else -1
+                
+                calls_cvd_day += cvd_inc
+        
+        # Process Puts
+        for row in puts_data:
+            vol = float(row['volume_traded'] or 0)
+            price = float(row['last_price'] or 0)
             
-            # Process Puts
-            for row in puts_data:
-                vol = float(row['volume_traded'] or 0)
-                price = float(row['last_price'] or 0)
+            if vol > 0 and price > 0:
+                bid_prices = row['bid_prices'] or []
+                ask_prices = row['ask_prices'] or []
+                best_bid = float(bid_prices[0]) if bid_prices and len(bid_prices) > 0 and bid_prices[0] else 0
+                best_ask = float(ask_prices[0]) if ask_prices and len(ask_prices) > 0 and ask_prices[0] else 0
                 
-                if vol > 0 and price > 0:
-                    bid_prices = row['bid_prices'] or []
-                    ask_prices = row['ask_prices'] or []
-                    best_bid = float(bid_prices[0]) if bid_prices and len(bid_prices) > 0 and bid_prices[0] else 0
-                    best_ask = float(ask_prices[0]) if ask_prices and len(ask_prices) > 0 and ask_prices[0] else 0
-                    
-                    if best_ask > 0 and price >= best_ask:
-                        cvd_inc = 1
-                    elif best_bid > 0 and price <= best_bid:
-                        cvd_inc = -1
-                    else:
-                        buy_qty = float(row['total_buy_quantity'] or 0)
-                        sell_qty = float(row['total_sell_quantity'] or 0)
-                        cvd_inc = 1 if buy_qty > sell_qty else -1
-                    
-                    puts_cvd_day += cvd_inc
+                if best_ask > 0 and price >= best_ask:
+                    cvd_inc = 1
+                elif best_bid > 0 and price <= best_bid:
+                    cvd_inc = -1
+                else:
+                    buy_qty = float(row['total_buy_quantity'] or 0)
+                    sell_qty = float(row['total_sell_quantity'] or 0)
+                    cvd_inc = 1 if buy_qty > sell_qty else -1
+                
+                puts_cvd_day += cvd_inc
         
         # Calculate net options CVD (ensure proper types)
         net_options_day = float(calls_cvd_day) - float(puts_cvd_day)
