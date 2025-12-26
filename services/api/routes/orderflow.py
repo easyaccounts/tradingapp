@@ -63,12 +63,12 @@ async def get_orderflow_analysis(
                 total_buy_quantity,
                 total_sell_quantity,
                 average_traded_price,
-                depth_buy_price,
-                depth_buy_quantity,
-                depth_buy_orders,
-                depth_sell_price,
-                depth_sell_quantity,
-                depth_sell_orders
+                bid_prices,
+                bid_quantities,
+                bid_orders,
+                ask_prices,
+                ask_quantities,
+                ask_orders
             FROM ticks
             WHERE instrument_token = $1
             ORDER BY time DESC
@@ -215,20 +215,12 @@ async def get_orderflow_analysis(
         avg_volume = sum(volumes) / len(volumes) if volumes else 0
         
         # 7. Order Book (top 5 levels)
-        depth_buy_prices = latest['depth_buy_price'] or []
-        depth_buy_quantities = latest['depth_buy_quantity'] or []
-        depth_buy_orders = latest['depth_buy_orders'] or []
-        depth_sell_prices = latest['depth_sell_price'] or []
-        depth_sell_quantities = latest['depth_sell_quantity'] or []
-        depth_sell_orders = latest['depth_sell_orders'] or []
-        
-        # Take top 5 levels
-        bid_prices = depth_buy_prices[:5] if depth_buy_prices else []
-        bid_quantities = depth_buy_quantities[:5] if depth_buy_quantities else []
-        bid_orders = depth_buy_orders[:5] if depth_buy_orders else []
-        ask_prices = depth_sell_prices[:5] if depth_sell_prices else []
-        ask_quantities = depth_sell_quantities[:5] if depth_sell_quantities else []
-        ask_orders = depth_sell_orders[:5] if depth_sell_orders else []
+        bid_prices = latest['bid_prices'] or []
+        bid_quantities = latest['bid_quantities'] or []
+        bid_orders = latest['bid_orders'] or []
+        ask_prices = latest['ask_prices'] or []
+        ask_quantities = latest['ask_quantities'] or []
+        ask_orders = latest['ask_orders'] or []
         
         # Calculate spread
         spread = 0
