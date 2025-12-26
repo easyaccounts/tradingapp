@@ -1,0 +1,283 @@
+root@vmi2986128:/opt/tradingapp# docker-compose up -d
+Creating network "tradingapp_tradingapp-network" with driver "bridge"
+Creating volume "tradingapp_pgdata" with local driver
+Creating volume "tradingapp_redisdata" with local driver
+Creating volume "tradingapp_rabbitmqdata" with local driver
+Creating volume "tradingapp_prometheusdata" with local driver
+Creating volume "tradingapp_grafanadata" with local driver
+Pulling timescaledb (timescale/timescaledb:latest-pg15)...
+latest-pg15: Pulling from timescale/timescaledb
+f8aeb0409545: Pull complete
+0a9a5dfd008f: Pull complete
+c259fdfe51e9: Pull complete
+678cff7daef4: Pull complete
+6035710dcfda: Pull complete
+8a1f652aba56: Pull complete
+d54f6bea316d: Pull complete
+6cdeafa72762: Pull complete
+6c40c6e3a2de: Pull complete
+c6e1fc4b8983: Pull complete
+937c3e5e5624: Pull complete
+8c09314ad148: Pull complete
+bf062aed77d0: Pull complete
+9a61de866572: Pull complete
+c4040f6dea58: Pull complete
+fd4e9b47b374: Pull complete
+b4c2c50c4551: Pull complete
+d6444eec2a1c: Pull complete
+edc3a8d99c33: Download complete
+Digest: sha256:7206963d50262d757c8ff81cd056c5acda15e77eb1327701ff00e80e02a1686b
+Status: Downloaded newer image for timescale/timescaledb:latest-pg15
+Pulling pgbouncer (edoburu/pgbouncer:)...
+latest: Pulling from edoburu/pgbouncer
+7c0969dcb2e2: Pull complete
+2d35ebdb57d9: Pull complete
+a2c0d92449c9: Pull complete
+b01b2dd70db7: Pull complete
+c0799cf6173a: Pull complete
+1b602aed16db: Pull complete
+926abe5069a4: Download complete
+Digest: sha256:85d1e38593617af1b5f7f285e97d407e56c29939683cc7cfe4c8f6dc19f1268b
+Status: Downloaded newer image for edoburu/pgbouncer:latest
+Pulling redis (redis:7-alpine)...
+7-alpine: Pulling from library/redis
+d75b3becd998: Pull complete
+f637881d1138: Pull complete
+60c57c0072ef: Pull complete
+fc4343b4accd: Pull complete
+380e8aa8b1fd: Pull complete
+c70aae7b5e0d: Pull complete
+232f7549c9b0: Pull complete
+4f4fb700ef54: Pull complete
+95050f4fb536: Download complete
+5f8375faf7cb: Download complete
+Digest: sha256:ee64a64eaab618d88051c3ade8f6352d11531fcf79d9a4818b9b183d8c1d18ba
+Status: Downloaded newer image for redis:7-alpine
+Pulling rabbitmq (rabbitmq:3-management-alpine)...
+3-management-alpine: Pulling from library/rabbitmq
+9ab46c560811: Pull complete
+f7900ae6286e: Pull complete
+7f4fe0a74327: Pull complete
+fe0979840307: Pull complete
+5541f4a1e9a3: Pull complete
+5a8ebb2679b2: Pull complete
+64a815d19254: Pull complete
+3fdf1da6c087: Pull complete
+3c428bdb4834: Pull complete
+63aa2505d58f: Download complete
+1fd50e0483ed: Download complete
+Digest: sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281
+Status: Downloaded newer image for rabbitmq:3-management-alpine
+Building api
+[+] Building 70.9s (11/11) FINISHED                                                                                                                                                                                           docker:default
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.1s
+ => => transferring dockerfile: 649B                                                                                                                                                                                                    0.0s
+ => [internal] load metadata for docker.io/library/python:3.11-slim                                                                                                                                                                     3.3s
+ => [internal] load .dockerignore                                                                                                                                                                                                       0.0s
+ => => transferring context: 2B                                                                                                                                                                                                         0.0s
+ => [1/6] FROM docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               5.0s
+ => => resolve docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               0.0s
+ => => sha256:3f0cdbca744e7bd0ce0ff6da73b9148829b04309925992954a314ba203f56e99 249B / 249B                                                                                                                                              0.6s
+ => => sha256:4d55cfecf3663813d03c369bcd532b89f41cf07b65d95887ef686538370a747c 14.36MB / 14.36MB                                                                                                                                        1.4s
+ => => sha256:1733a4cd59540b3470ff7a90963bcdea5b543279dd6bdaf022d7883fdad221e5 29.78MB / 29.78MB                                                                                                                                        2.2s
+ => => sha256:72cf4c3b83019e176aba979aba419d35f56576bbcfc4f7249a1ab1d4b536730b 1.29MB / 1.29MB                                                                                                                                          1.4s
+ => => extracting sha256:1733a4cd59540b3470ff7a90963bcdea5b543279dd6bdaf022d7883fdad221e5                                                                                                                                               1.4s
+ => => extracting sha256:72cf4c3b83019e176aba979aba419d35f56576bbcfc4f7249a1ab1d4b536730b                                                                                                                                               0.2s
+ => => extracting sha256:4d55cfecf3663813d03c369bcd532b89f41cf07b65d95887ef686538370a747c                                                                                                                                               1.0s
+ => => extracting sha256:3f0cdbca744e7bd0ce0ff6da73b9148829b04309925992954a314ba203f56e99                                                                                                                                               0.0s
+ => [internal] load build context                                                                                                                                                                                                       0.0s
+ => => transferring context: 20.11kB                                                                                                                                                                                                    0.0s
+ => [2/6] WORKDIR /app                                                                                                                                                                                                                  0.5s
+ => [3/6] RUN apt-get update && apt-get install -y     gcc     curl     && rm -rf /var/lib/apt/lists/*                                                                                                                                 20.4s
+ => [4/6] COPY requirements.txt .                                                                                                                                                                                                       0.2s
+ => [5/6] RUN pip install --no-cache-dir -r requirements.txt                                                                                                                                                                           19.8s
+ => [6/6] COPY . .                                                                                                                                                                                                                      0.1s
+ => exporting to image                                                                                                                                                                                                                 21.2s
+ => => exporting layers                                                                                                                                                                                                                13.9s
+ => => exporting manifest sha256:af5606459a30add3f6b601dc273ef9083e7e61cbe58573d687f5d46341ebac85                                                                                                                                       0.0s
+ => => exporting config sha256:c18b40cc45c29e622fb44eedee2675a6f5b373adf9378de691d06fab0ebe29aa                                                                                                                                         0.0s
+ => => exporting attestation manifest sha256:ceeee5746c6934ca9516acda623e329eead53955ef7a3c880af290205aac1866                                                                                                                           0.0s
+ => => exporting manifest list sha256:c9d0ecc76c75019bfc61a4d8740522aae852d0d95ac23ec4aef02fec0a53db60                                                                                                                                  0.0s
+ => => naming to docker.io/library/tradingapp_api:latest                                                                                                                                                                                0.0s
+ => => unpacking to docker.io/library/tradingapp_api:latest                                                                                                                                                                             7.2s
+WARNING: Image for service api was built because it did not already exist. To rebuild this image you must use `docker-compose build` or `docker-compose up --build`.
+Building frontend
+[+] Building 8.3s (7/7) FINISHED                                                                                                                                                                                              docker:default
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.0s
+ => => transferring dockerfile: 216B                                                                                                                                                                                                    0.0s
+ => [internal] load metadata for docker.io/library/nginx:alpine                                                                                                                                                                         3.3s
+ => [internal] load .dockerignore                                                                                                                                                                                                       0.1s
+ => => transferring context: 2B                                                                                                                                                                                                         0.0s
+ => [internal] load build context                                                                                                                                                                                                       0.1s
+ => => transferring context: 21.57kB                                                                                                                                                                                                    0.0s
+ => [1/2] FROM docker.io/library/nginx:alpine@sha256:8491795299c8e739b7fcc6285d531d9812ce2666e07bd3dd8db00020ad132295                                                                                                                   3.7s
+ => => resolve docker.io/library/nginx:alpine@sha256:8491795299c8e739b7fcc6285d531d9812ce2666e07bd3dd8db00020ad132295                                                                                                                   0.1s
+ => => sha256:de54cb821236c86af111bf7a17c40e42b3a5ad0e08c1a5ec76fb654d35f58df8 17.26MB / 17.26MB                                                                                                                                        1.1s
+ => => sha256:0abf9e5672665202e79f26f23ef5dbd12558e2ea51ac32807922ab76fdb24ab0 1.40kB / 1.40kB                                                                                                                                          0.9s
+ => => sha256:085c5e5aaa8eb4b957ecf253c74f16a6a5551231de3fb7c3ac74814a6bf17e06 1.21kB / 1.21kB                                                                                                                                          1.2s
+ => => sha256:33f95a0f3229b49e777082e801b882b13fcc5b4e389410ce8eb066f4d58c71b9 403B / 403B                                                                                                                                              1.2s
+ => => sha256:da7c973d8b92a1555060972c8849a332c93bfe2608c11faeee2098c4cfbe8c3d 953B / 953B                                                                                                                                              0.6s
+ => => sha256:567f84da6fbd4287d40a5837485469435c40a81f9a94e98395b6385d3600643a 626B / 626B                                                                                                                                              0.6s
+ => => sha256:25f453064fd3e8a9754b6e51b86c637e13203cbfc748fcf73f3c8b2d10816ae3 1.86MB / 1.86MB                                                                                                                                          0.7s
+ => => sha256:1074353eec0db2c1d81d5af2671e56e00cf5738486f5762609ea33d606f88612 3.86MB / 3.86MB                                                                                                                                          0.9s
+ => => extracting sha256:1074353eec0db2c1d81d5af2671e56e00cf5738486f5762609ea33d606f88612                                                                                                                                               0.2s
+ => => extracting sha256:25f453064fd3e8a9754b6e51b86c637e13203cbfc748fcf73f3c8b2d10816ae3                                                                                                                                               0.2s
+ => => extracting sha256:567f84da6fbd4287d40a5837485469435c40a81f9a94e98395b6385d3600643a                                                                                                                                               0.0s
+ => => extracting sha256:da7c973d8b92a1555060972c8849a332c93bfe2608c11faeee2098c4cfbe8c3d                                                                                                                                               0.0s
+ => => extracting sha256:33f95a0f3229b49e777082e801b882b13fcc5b4e389410ce8eb066f4d58c71b9                                                                                                                                               0.0s
+ => => extracting sha256:085c5e5aaa8eb4b957ecf253c74f16a6a5551231de3fb7c3ac74814a6bf17e06                                                                                                                                               0.0s
+ => => extracting sha256:0abf9e5672665202e79f26f23ef5dbd12558e2ea51ac32807922ab76fdb24ab0                                                                                                                                               0.0s
+ => => extracting sha256:de54cb821236c86af111bf7a17c40e42b3a5ad0e08c1a5ec76fb654d35f58df8                                                                                                                                               0.8s
+ => [2/2] COPY public /usr/share/nginx/html                                                                                                                                                                                             0.4s
+ => exporting to image                                                                                                                                                                                                                  0.4s
+ => => exporting layers                                                                                                                                                                                                                 0.2s
+ => => exporting manifest sha256:a6acb1e290a4884176cc4971ff4e821f539d2f99b7bf818f6806087952ab6368                                                                                                                                       0.0s
+ => => exporting config sha256:cb0615e4cad1636fcf259fab69be09bff090d4dcea28cf0385698bf43883f951                                                                                                                                         0.0s
+ => => exporting attestation manifest sha256:92962eedfde22971ba3419747b2ae009caa20fa59440080cfc2cdfd5ac8f86c5                                                                                                                           0.0s
+ => => exporting manifest list sha256:633c48b45bf748ae29bca5b6c7f45701aa530061082d7ede507c456b79a8c6f8                                                                                                                                  0.0s
+ => => naming to docker.io/library/tradingapp_frontend:latest                                                                                                                                                                           0.0s
+ => => unpacking to docker.io/library/tradingapp_frontend:latest                                                                                                                                                                        0.1s
+WARNING: Image for service frontend was built because it did not already exist. To rebuild this image you must use `docker-compose build` or `docker-compose up --build`.
+Building ingestion
+[+] Building 52.5s (11/11) FINISHED                                                                                                                                                                                           docker:default
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.0s
+ => => transferring dockerfile: 425B                                                                                                                                                                                                    0.0s
+ => [internal] load metadata for docker.io/library/python:3.11-slim                                                                                                                                                                     0.9s
+ => [internal] load .dockerignore                                                                                                                                                                                                       0.1s
+ => => transferring context: 2B                                                                                                                                                                                                         0.0s
+ => [1/6] FROM docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               0.1s
+ => => resolve docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               0.0s
+ => [internal] load build context                                                                                                                                                                                                       0.0s
+ => => transferring context: 46.33kB                                                                                                                                                                                                    0.0s
+ => CACHED [2/6] WORKDIR /app                                                                                                                                                                                                           0.0s
+ => [3/6] RUN apt-get update && apt-get install -y     gcc     && rm -rf /var/lib/apt/lists/*                                                                                                                                          14.2s
+ => [4/6] COPY requirements.txt .                                                                                                                                                                                                       0.1s
+ => [5/6] RUN pip install --no-cache-dir -r requirements.txt                                                                                                                                                                           17.5s
+ => [6/6] COPY . .                                                                                                                                                                                                                      0.1s
+ => exporting to image                                                                                                                                                                                                                 19.2s
+ => => exporting layers                                                                                                                                                                                                                13.4s
+ => => exporting manifest sha256:37582746582beb884251b83034a19a6b45e73a2a909904886f3ca73fb9fa5925                                                                                                                                       0.0s
+ => => exporting config sha256:01ed8ea3f3d67051bb4c63ac561747ffdd58a3514b10a250ff84e1c73dec2a77                                                                                                                                         0.0s
+ => => exporting attestation manifest sha256:5e2fa106f7b224cd369b6dc6e119a189cc55045032e28fc5605566c0c7b1867d                                                                                                                           0.0s
+ => => exporting manifest list sha256:3f5b1358dde9ffce12ed3c4ea43095a0c7084c010739666919485bab89029478                                                                                                                                  0.0s
+ => => naming to docker.io/library/tradingapp_ingestion:latest                                                                                                                                                                          0.0s
+ => => unpacking to docker.io/library/tradingapp_ingestion:latest                                                                                                                                                                       5.6s
+WARNING: Image for service ingestion was built because it did not already exist. To rebuild this image you must use `docker-compose build` or `docker-compose up --build`.
+Building worker
+[+] Building 47.9s (11/11) FINISHED                                                                                                                                                                                           docker:default
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.0s
+ => => transferring dockerfile: 536B                                                                                                                                                                                                    0.0s
+ => [internal] load metadata for docker.io/library/python:3.11-slim                                                                                                                                                                     0.9s
+ => [internal] load .dockerignore                                                                                                                                                                                                       0.0s
+ => => transferring context: 2B                                                                                                                                                                                                         0.0s
+ => [1/6] FROM docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               0.1s
+ => => resolve docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               0.1s
+ => [internal] load build context                                                                                                                                                                                                       0.1s
+ => => transferring context: 21.73kB                                                                                                                                                                                                    0.0s
+ => CACHED [2/6] WORKDIR /app                                                                                                                                                                                                           0.0s
+ => [3/6] RUN apt-get update && apt-get install -y     gcc     libpq-dev     && rm -rf /var/lib/apt/lists/*                                                                                                                            16.6s
+ => [4/6] COPY requirements.txt .                                                                                                                                                                                                       0.1s
+ => [5/6] RUN pip install --no-cache-dir -r requirements.txt                                                                                                                                                                           11.5s
+ => [6/6] COPY . .                                                                                                                                                                                                                      0.1s
+ => exporting to image                                                                                                                                                                                                                 18.3s
+ => => exporting layers                                                                                                                                                                                                                13.1s
+ => => exporting manifest sha256:c3dd07b280122e2bd7c42e224af0b6f6fdc15cf3fe81683e240ef4e8da8aa9d6                                                                                                                                       0.0s
+ => => exporting config sha256:f86a1e7964ba96ebd8691fb6dfef78c5a513afcc5ec8ce56f7a158b31f262299                                                                                                                                         0.0s
+ => => exporting attestation manifest sha256:937d560125106095e4ba085ad4fa7c5eb566bad0465d0c06e5deb3293375eeb2                                                                                                                           0.0s
+ => => exporting manifest list sha256:999766c1da0ad1231c43915804e2408c250195e2559f1dbc306c796e7cd82921                                                                                                                                  0.0s
+ => => naming to docker.io/library/tradingapp_worker:latest                                                                                                                                                                             0.0s
+ => => unpacking to docker.io/library/tradingapp_worker:latest                                                                                                                                                                          5.0s
+WARNING: Image for service worker was built because it did not already exist. To rebuild this image you must use `docker-compose build` or `docker-compose up --build`.
+Building beat
+[+] Building 1.3s (11/11) FINISHED                                                                                                                                                                                            docker:default
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.0s
+ => => transferring dockerfile: 536B                                                                                                                                                                                                    0.0s
+ => [internal] load metadata for docker.io/library/python:3.11-slim                                                                                                                                                                     0.9s
+ => [internal] load .dockerignore                                                                                                                                                                                                       0.0s
+ => => transferring context: 2B                                                                                                                                                                                                         0.0s
+ => [1/6] FROM docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               0.1s
+ => => resolve docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               0.1s
+ => [internal] load build context                                                                                                                                                                                                       0.0s
+ => => transferring context: 190B                                                                                                                                                                                                       0.0s
+ => CACHED [2/6] WORKDIR /app                                                                                                                                                                                                           0.0s
+ => CACHED [3/6] RUN apt-get update && apt-get install -y     gcc     libpq-dev     && rm -rf /var/lib/apt/lists/*                                                                                                                      0.0s
+ => CACHED [4/6] COPY requirements.txt .                                                                                                                                                                                                0.0s
+ => CACHED [5/6] RUN pip install --no-cache-dir -r requirements.txt                                                                                                                                                                     0.0s
+ => CACHED [6/6] COPY . .                                                                                                                                                                                                               0.0s
+ => exporting to image                                                                                                                                                                                                                  0.2s
+ => => exporting layers                                                                                                                                                                                                                 0.0s
+ => => exporting manifest sha256:c3dd07b280122e2bd7c42e224af0b6f6fdc15cf3fe81683e240ef4e8da8aa9d6                                                                                                                                       0.0s
+ => => exporting config sha256:f86a1e7964ba96ebd8691fb6dfef78c5a513afcc5ec8ce56f7a158b31f262299                                                                                                                                         0.0s
+ => => exporting attestation manifest sha256:aff25524fbfdde2cf438da016bf213f381f1678de8eced02b0f77643a3fca711                                                                                                                           0.1s
+ => => exporting manifest list sha256:2cd3c5e529ee433c0d84fb9ef1df6d9ceaa9430a3a0baa6203a2b895d5b78abb                                                                                                                                  0.0s
+ => => naming to docker.io/library/tradingapp_beat:latest                                                                                                                                                                               0.0s
+ => => unpacking to docker.io/library/tradingapp_beat:latest                                                                                                                                                                            0.0s
+WARNING: Image for service beat was built because it did not already exist. To rebuild this image you must use `docker-compose build` or `docker-compose up --build`.
+Building flower
+[+] Building 0.8s (11/11) FINISHED                                                                                                                                                                                            docker:default
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                    0.0s
+ => => transferring dockerfile: 536B                                                                                                                                                                                                    0.0s
+ => [internal] load metadata for docker.io/library/python:3.11-slim                                                                                                                                                                     0.4s
+ => [internal] load .dockerignore                                                                                                                                                                                                       0.0s
+ => => transferring context: 2B                                                                                                                                                                                                         0.0s
+ => [1/6] FROM docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               0.0s
+ => => resolve docker.io/library/python:3.11-slim@sha256:158caf0e080e2cd74ef2879ed3c4e697792ee65251c8208b7afb56683c32ea6c                                                                                                               0.0s
+ => [internal] load build context                                                                                                                                                                                                       0.0s
+ => => transferring context: 190B                                                                                                                                                                                                       0.0s
+ => CACHED [2/6] WORKDIR /app                                                                                                                                                                                                           0.0s
+ => CACHED [3/6] RUN apt-get update && apt-get install -y     gcc     libpq-dev     && rm -rf /var/lib/apt/lists/*                                                                                                                      0.0s
+ => CACHED [4/6] COPY requirements.txt .                                                                                                                                                                                                0.0s
+ => CACHED [5/6] RUN pip install --no-cache-dir -r requirements.txt                                                                                                                                                                     0.0s
+ => CACHED [6/6] COPY . .                                                                                                                                                                                                               0.0s
+ => exporting to image                                                                                                                                                                                                                  0.2s
+ => => exporting layers                                                                                                                                                                                                                 0.0s
+ => => exporting manifest sha256:c3dd07b280122e2bd7c42e224af0b6f6fdc15cf3fe81683e240ef4e8da8aa9d6                                                                                                                                       0.0s
+ => => exporting config sha256:f86a1e7964ba96ebd8691fb6dfef78c5a513afcc5ec8ce56f7a158b31f262299                                                                                                                                         0.0s
+ => => exporting attestation manifest sha256:5417a266e63f07a5eadfa3acd89bf6dbfdc316f5997064854f20c6568e62c1f0                                                                                                                           0.0s
+ => => exporting manifest list sha256:de60bddbf65dcc28ab52ec3d6670a3792447a8cccc1290d6f2b2aa014c645b9d                                                                                                                                  0.0s
+ => => naming to docker.io/library/tradingapp_flower:latest                                                                                                                                                                             0.0s
+ => => unpacking to docker.io/library/tradingapp_flower:latest                                                                                                                                                                          0.0s
+WARNING: Image for service flower was built because it did not already exist. To rebuild this image you must use `docker-compose build` or `docker-compose up --build`.
+Pulling prometheus (prom/prometheus:latest)...
+latest: Pulling from prom/prometheus
+fd581fe2de26: Pull complete
+d0f7326b7716: Pull complete
+2430d5ddfd0e: Pull complete
+c5e95088860d: Pull complete
+b8d9ef68618b: Pull complete
+08a0c52f4aa7: Pull complete
+7408017f0d80: Pull complete
+9d85dc8d0609: Pull complete
+b351d2c02e9d: Pull complete
+48a0f696008d: Pull complete
+Digest: sha256:2b6f734e372c1b4717008f7d0a0152316aedd4d13ae17ef1e3268dbfaf68041b
+Status: Downloaded newer image for prom/prometheus:latest
+Pulling grafana (grafana/grafana:latest)...
+latest: Pulling from grafana/grafana
+d2772eb63bbd: Pull complete
+4a965f51fa32: Pull complete
+835a6d0e4902: Pull complete
+a2a0d06388d6: Pull complete
+014e56e61396: Pull complete
+a7d3fdc2e5af: Pull complete
+dafcd853cdea: Pull complete
+c8585378023b: Pull complete
+fe0fb9ad3b64: Pull complete
+f50da64eedfd: Pull complete
+Digest: sha256:2175aaa91c96733d86d31cf270d5310b278654b03f5718c59de12a865380a31f
+Status: Downloaded newer image for grafana/grafana:latest
+Pulling nginx (nginx:alpine)...
+alpine: Pulling from library/nginx
+Digest: sha256:8491795299c8e739b7fcc6285d531d9812ce2666e07bd3dd8db00020ad132295
+Status: Downloaded newer image for nginx:alpine
+Creating tradingapp-frontend    ... done
+Creating tradingapp-rabbitmq    ... done
+Creating tradingapp-redis       ... done
+Creating tradingapp-prometheus  ... done
+Creating tradingapp-timescaledb ... done
+Creating tradingapp-grafana     ... done
+Creating tradingapp-flower      ... done
+Creating tradingapp-beat        ... done
+
+ERROR: for pgbouncer  Container "1c25d3eff4f0" is unhealthy.
+ERROR: Encountered errors while bringing up the project.

@@ -7,6 +7,7 @@ import sys
 import os
 import signal
 import time
+import logging
 import structlog
 import redis
 from config import config
@@ -24,7 +25,7 @@ structlog.configure(
         structlog.dev.set_exc_info,
         structlog.processors.JSONRenderer()
     ],
-    wrapper_class=structlog.make_filtering_bound_logger(config.LOG_LEVEL.upper()),
+    wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, config.LOG_LEVEL.upper())),
     context_class=dict,
     logger_factory=structlog.PrintLoggerFactory(),
     cache_logger_on_first_use=False

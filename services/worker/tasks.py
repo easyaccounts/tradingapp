@@ -6,6 +6,7 @@ Processes tick data and performs maintenance operations
 import os
 import json
 import time
+import logging
 import redis
 import structlog
 from typing import List, Dict
@@ -20,7 +21,7 @@ structlog.configure(
         structlog.processors.add_log_level,
         structlog.processors.JSONRenderer()
     ],
-    wrapper_class=structlog.make_filtering_bound_logger("INFO"),
+    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
     context_class=dict,
     logger_factory=structlog.PrintLoggerFactory(),
 )
