@@ -205,6 +205,7 @@ services:
     container_name: tradingapp-flower
     command: celery -A celery_app flower --port=5555
     environment:
+      DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       RABBITMQ_URL: ${RABBITMQ_URL}
     depends_on:
