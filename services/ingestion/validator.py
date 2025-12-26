@@ -32,9 +32,9 @@ def validate_tick(tick: KiteTick) -> bool:
             logger.warning("validation_failed", reason="missing_instrument_token")
             return False
         
-        # Validate price data (if present, must be positive)
-        if tick.last_price is not None and tick.last_price <= 0:
-            logger.warning("validation_failed", reason="invalid_last_price", value=tick.last_price, instrument_token=tick.instrument_token)
+        # Validate price data (if present, must not be negative - zero is allowed for options)
+        if tick.last_price is not None and tick.last_price < 0:
+            logger.warning("validation_failed", reason="negative_last_price", value=tick.last_price, instrument_token=tick.instrument_token)
             return False
         
         # Validate volumes (must be non-negative)
