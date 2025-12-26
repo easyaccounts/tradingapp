@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Update NIFTY Options Tokens in .env file
-Downloads instruments from Kite API and filters NFO-OPT NIFTY options
+Update NIFTY Options and Futures Tokens in .env file
+Downloads instruments from Kite API and filters NFO-OPT and NFO-FUT NIFTY instruments
 Should be run weekly (every Wednesday) to refresh tokens
 """
 
@@ -30,20 +30,31 @@ def download_instruments():
         sys.exit(1)
 
 def parse_and_filter_instruments(csv_content):
-    """Parse CSV and filter NIFTY options from NFO-OPT segment"""
+    """Parse CSV and filter NIFTY options and futures from NFO-OPT and NFO-FUT segments"""
     print(f"[{datetime.now()}] Parsing and filtering instruments...")
     
     tokens = []
+    options_count = 0
+    futures_count = 0
     csv_reader = csv.DictReader(csv_content.splitlines())
     
     for row in csv_reader:
-        # Filter: segment = NFO-OPT and name = NIFTY
-        if row.get('segment') == 'NFO-OPT' and row.get('name') == 'NIFTY':
+        segment = row.get('segment')
+        name = row.get('name')
+        
+        # Filter: (segment = NFO-OPT OR NFO-FUT) and name = NIFTY
+        if name == 'NIFTY' and segment in ['NFO-OPT', 'NFO-FUT']:
             token = row.get('instrument_token')
             if token:
                 tokens.append(token)
+                if segment == 'NFO-OPT':
+                    options_count += 1
+                else:
+                    futures_count += 1
     
-    print(f"[{datetime.now()}] Found {len(tokens)} NIFTY options tokens")
+    print(f"[{datetime.now()}] Found {len(tokens)} NIFTY tokens:")
+    print(f"  - Options (NFO-OPT): {options_count}")
+    print(f"  - Futures (NFO-FUT): {futures_count}")
     return tokens
 
 def backup_env_file():
@@ -101,7 +112,7 @@ def update_env_file(tokens):
 def main():
     """Main execution"""
     print("=" * 70)
-    print("NIFTY Options Tokens Update Script")
+    print("NIFTY Options & Futures Tokens Update Script")
     print("=" * 70)
     print(f"Started at: {datetime.now()}")
     print()
