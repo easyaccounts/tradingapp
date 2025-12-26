@@ -1,0 +1,23 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "python.analysis.extraPaths": [
+            "${workspaceFolder}/services/api",
+            "${workspaceFolder}/services/api/routes",
+            "${workspaceFolder}/services/ingestion",
+            "${workspaceFolder}/services/worker",
+            "${workspaceFolder}/scripts"
+        ],
+        "python.autoComplete.extraPaths": [
+            "${workspaceFolder}/services/api",
+            "${workspaceFolder}/services/api/routes",
+            "${workspaceFolder}/services/ingestion",
+            "${workspaceFolder}/services/worker",
+            "${workspaceFolder}/scripts"
+        ]
+    }
+}

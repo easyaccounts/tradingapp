@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>✅ Success - Trading Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 50px 40px;
+            text-align: center;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .checkmark {
+            font-size: 100px;
+            animation: bounce 0.6s ease-out;
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {
+                transform: translateY(0);
+            }
+            40% {
+                transform: translateY(-20px);
+            }
+            60% {
+                transform: translateY(-10px);
+            }
+        }
+
+        h1 {
+            color: #11998e;
+            font-size: 36px;
+            margin: 20px 0 10px;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 18px;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 30px 0;
+            text-align: left;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .status-value {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .status-value.success {
+            color: #11998e;
+        }
+
+        .next-steps {
+            background: #e8f5f3;
+            border-left: 4px solid #11998e;
+            padding: 20px;
+            margin-top: 30px;
+            text-align: left;
+            border-radius: 4px;
+        }
+
+        .next-steps h3 {
+            color: #11998e;
+            font-size: 18px;
+            margin-bottom: 15px;
+        }
+
+        .next-steps ul {
+            color: #555;
+            font-size: 15px;
+            margin-left: 20px;
+            line-height: 2;
+        }
+
+        .next-steps li::marker {
+            color: #11998e;
+        }
+
+        .btn-group {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            border: none;
+            padding: 14px 30px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 600;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(17, 153, 142, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #11998e;
+            border: 2px solid #11998e;
+        }
+
+        .btn-secondary:hover {
+            background: #f8f9fa;
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #11998e;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 40px 20px;
+            }
+            
+            h1 {
+                font-size: 30px;
+            }
+            
+            .btn-group {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="checkmark">✅</div>
+        <h1>Authentication Successful!</h1>
+        <p class="subtitle">
+            Your Kite account is now connected.<br>
+            Data ingestion will start shortly.
+        </p>
+        
+        <div class="status-card">
+            <div class="status-item">
+                <span class="status-label">Connection Status</span>
+                <span class="status-value success" id="connectionStatus">
+                    Connected <span class="loading-spinner"></span>
+                </span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Token Expiry</span>
+                <span class="status-value" id="tokenExpiry">Loading...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">User ID</span>
+                <span class="status-value" id="userId">Loading...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Ingestion Service</span>
+                <span class="status-value" id="ingestionStatus">Starting...</span>
+            </div>
+        </div>
+        
+        <div class="next-steps">
+            <h3>📋 Next Steps</h3>
+            <ul>
+                <li><strong>Verify</strong> instruments are configured in .env file</li>
+                <li><strong>Monitor</strong> data ingestion in RabbitMQ dashboard</li>
+                <li><strong>Check</strong> database for incoming ticks</li>
+                <li><strong>View</strong> metrics in Grafana dashboard</li>
+            </ul>
+        </div>
+        
+        <div class="btn-group">
+            <a href="#" id="rabbitmq-link" target="_blank" class="btn">
+                RabbitMQ Dashboard
+            </a>
+            <a href="#" id="flower-link" target="_blank" class="btn">
+                Flower (Celery)
+            </a>
+            <a href="#" id="grafana-link" target="_blank" class="btn">
+                Grafana
+            </a>
+            <a href="/" class="btn btn-secondary">
+                Back to Home
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Fetch authentication status
+        async function checkAuthStatus() {
+            try {
+                const response = await fetch('/api/kite/status');
+                const data = await response.json();
+                
+                if (data.authenticated) {
+                    document.getElementById('connectionStatus').innerHTML = '✓ Connected';
+                    
+                    const hours = Math.floor(data.ttl_seconds / 3600);
+                    const minutes = Math.floor((data.ttl_seconds % 3600) / 60);
+                    document.getElementById('tokenExpiry').textContent = 
+                        `${hours}h ${minutes}m remaining`;
+                    
+                    document.getElementById('userId').textContent = 
+                        data.user_id || 'N/A';
+                    
+                    // Update ingestion status after a delay
+                    setTimeout(() => {
+                        document.getElementById('ingestionStatus').innerHTML = 
+                            '<span style="color: #11998e;">✓ Active</span>';
+                    }, 2000);
+                } else {
+                    document.getElementById('connectionStatus').innerHTML = 
+                        '✗ Not Connected';
+                    document.getElementById('tokenExpiry').textContent = 'N/A';
+                    document.getElementById('userId').textContent = 'N/A';
+                }
+            } catch (error) {
+                console.error('Failed to fetch auth status:', error);
+                document.getElementById('connectionStatus').innerHTML = 
+                    '⚠ Error checking status';
+            }
+        }
+        
+        // Check status on page load
+        window.addEventListener('load', () => {
+            setTimeout(checkAuthStatus, 500);
+            
+            // Set dashboard URLs dynamically based on hostname
+            const hostname = window.location.hostname;
+            const protocol = window.location.protocol;
+            document.getElementById('rabbitmq-link').href = `${protocol}//${hostname}:15672`;
+            document.getElementById('flower-link').href = `${protocol}//${hostname}:5555`;
+            document.getElementById('grafana-link').href = `${protocol}//${hostname}:3000`;
+        });
+    </script>
+</body>
+</html>
