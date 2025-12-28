@@ -248,9 +248,10 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
             # Calculate gross and net P&L
             final_pnl = (exit_price - entry_price) / entry_price * 100
             
-            # Calculate transaction costs (use entry price as reference)
-            # Assuming 1 share for percentage calculation
-            costs = calculate_transaction_costs(entry_price, exit_price, 1)
+            # Calculate transaction costs using ₹50,000 position size
+            # Quantity = 50,000 / entry_price (rounded down to whole shares)
+            quantity = int(50000 / entry_price)
+            costs = calculate_transaction_costs(entry_price, exit_price, quantity)
             cost_pct = costs['cost_percentage']
             net_pnl = final_pnl - cost_pct
             
@@ -329,8 +330,10 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
             # Calculate gross and net P&L
             final_pnl = (entry_price - exit_price) / entry_price * 100
             
-            # Calculate transaction costs
-            costs = calculate_transaction_costs(entry_price, exit_price, 1)
+            # Calculate transaction costs using ₹50,000 position size
+            # Quantity = 50,000 / entry_price (rounded down to whole shares)
+            quantity = int(50000 / entry_price)
+            costs = calculate_transaction_costs(entry_price, exit_price, quantity)
             cost_pct = costs['cost_percentage']
             net_pnl = final_pnl - cost_pct
         
@@ -380,6 +383,7 @@ def print_analysis(df, results):
     print(f"   Filter: Candle color must align with %B direction")
     
     print(f"\n💼 TRADE MANAGEMENT")
+    print(f"   Position Size: ₹50,000 per trade")
     print(f"   Trigger: %B crosses 105 / -5 (mark candle high/low)")
     print(f"   Confirmation: Close > trigger high (bullish) or close < trigger low (bearish) within 10 days")
     print(f"   Entry: At confirmation candle close")
