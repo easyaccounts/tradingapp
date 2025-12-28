@@ -9,24 +9,44 @@ from datetime import datetime, timedelta
 import psycopg2
 from psycopg2.extras import execute_values
 from kiteconnect import KiteConnect
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
+import redis
 
 
-def get_kite_client():
-    """Initialize KiteConnect client"""
+def get_access_token(redis_url):
+    """Get Kite access token from Redis"""
+    r = redis.from_url(redis_url, decode_responses=True)
+    token = r.get('kite_access_token')
+    if not token:
+        raise Exception("Kite access token not found in Redis. Please authenticate first.")
+    return token
+
+
+def get_api_key(redis_url):
+    """Get Kite API key from Redis or .env file"""
+    # Try Redis first
+    try:
+        r = redis.from_url(redis_url, decode_responses=True)
+        api_key = r.get('kite_api_key')
+        r.close()
+        if api_key:
+            return api_key
+    except:
+        pass
+    
+    # Try environment variable
     api_key = os.getenv('KITE_API_KEY')
-    access_token = os.getenv('KITE_ACCESS_TOKEN')
+    if api_key:
+        return api_key
     
-    if not api_key or not access_token:
-        print("Error: KITE_API_KEY and KITE_ACCESS_TOKEN must be set in .env")
-        sys.exit(1)
+    # Try .env file
+    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            for line in f:
+                if line.startswith('KITE_API_KEY='):
+                    return line.split('=', 1)[1].strip()
     
-    kite = KiteConnect(api_key=api_key)
-    kite.set_access_token(access_token)
-    return kite
+    raise Exception("KITE_API_KEY not found in Redis, environment, or .env file")
 
 
 def get_db_connection():
@@ -118,13 +138,34 @@ def main():
     print(" " * 20 + "NIFTY FUTURES CONTINUOUS DATA DOWNLOADER")
     print("=" * 80)
     
-    # Initialize Kite client
-    print("\n1. Initializing Kite client...")
-    kite = get_kite_client()
+    # Configuration
+    redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+    
+    # Get access token from Redis
+    print("\n1. Getting Kite credentials...")
+    try:
+        access_token = get_access_token(redis_url)
+        print("   ✓ Access token retrieved from Redis")
+    except Exception as e:
+        print(f"   ✗ Failed to get access token: {e}")
+        return
+    
+    # Get API key
+    try:
+        api_key = get_api_key(redis_url)
+        print("   ✓ API key retrieved")
+    except Exception as e:
+        print(f"   ✗ Failed to get API key: {e}")
+        return
+    
+    # Initialize KiteConnect
+    print("\n2. Initializing Kite client...")
+    kite = KiteConnect(api_key=api_key)
+    kite.set_access_token(access_token)
     print("   ✓ Kite client ready")
     
     # Connect to database
-    print("\n2. Connecting to database...")
+    print("\n3. Connecting to database...")
     conn = get_db_connection()
     print("   ✓ Database connected")
     
@@ -136,7 +177,7 @@ def main():
     to_date = datetime.now()
     from_date = to_date - timedelta(days=2000)
     
-    print(f"\n3. Downloading NIFTY continuous futures data...")
+    print(f"\n4. Downloading NIFTY continuous futures data...")
     print(f"   Requesting ~2000 days of data")
     
     # Fetch and store data
