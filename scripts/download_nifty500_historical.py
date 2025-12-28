@@ -16,18 +16,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def get_db_connection():
-    """Create database connection"""
-    try:
-        return psycopg2.connect(
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=os.getenv('DB_PORT', '5432'),
-            database=os.getenv('DB_NAME', 'tradingdb'),
-            user=os.getenv('DB_USER', 'tradinguser'),
-            password=os.getenv('DB_PASSWORD', '5Ke1Ne9TLlI1TNv1F6JEfefNvDvy0jZv66Sh0vqQJKQ=')
-        )
-    except Exception as e:
-        print(f"Database connection error: {e}")
-        sys.exit(1)
+    """Connect to PostgreSQL database"""
+    return psycopg2.connect(
+        host=os.getenv('DB_HOST', 'localhost'),
+        port=os.getenv('DB_PORT', '5432'),
+        database=os.getenv('DB_NAME', 'tradingdb'),
+        user=os.getenv('DB_USER', 'tradinguser'),
+        password=os.getenv('DB_PASSWORD', '5Ke1Ne9TLlI1TNv1F6JEfefNvDvy0jZv66Sh0vqQJKQ=')
+    )
 
 
 def get_nifty500_instruments_from_csv():

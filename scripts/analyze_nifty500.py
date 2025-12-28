@@ -15,7 +15,7 @@ exec(open('scripts/bollinger_b_analysis.py').read())
 
 
 def get_db_connection():
-    """Create database connection"""
+    """Connect to PostgreSQL database"""
     return psycopg2.connect(
         host=os.getenv('DB_HOST', 'localhost'),
         port=os.getenv('DB_PORT', '5432'),
