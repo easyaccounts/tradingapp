@@ -131,8 +131,29 @@ def identify_signals(df, percent_b):
         if current_volume <= avg_volume:
             continue
         
+        # Get candle dimensions for structure filter
+        current_high = df.at[i, 'high']
+        current_low = df.at[i, 'low']
+        candle_range = current_high - current_low
+        
+        # Skip candles with no range (rare but possible)
+        if candle_range == 0:
+            continue
+        
         # Bullish alert: %B crosses above 105 AND candle closes green (close > open)
         if prev_b <= 105 and current_b > 105 and current_close > current_open:
+            # Candle structure filter for bullish:
+            # 1. Body should be at least 50% of total range (strong conviction)
+            body_size = current_close - current_open
+            body_ratio = body_size / candle_range
+            
+            # 2. Close should be in top 70% of range (minimal upper wick)
+            close_position = (current_close - current_low) / candle_range
+            
+            # Skip weak candles (small body or long upper wick)
+            if body_ratio < 0.50 or close_position < 0.70:
+                continue
+            
             alerts.append({
                 'type': 'BULLISH_ALERT',
                 'alert_date': df.at[i, 'date'],
@@ -148,6 +169,18 @@ def identify_signals(df, percent_b):
         
         # Bearish alert: %B crosses below -5 AND candle closes red (close < open)
         elif prev_b >= -5 and current_b < -5 and current_close < current_open:
+            # Candle structure filter for bearish:
+            # 1. Body should be at least 50% of total range (strong conviction)
+            body_size = current_open - current_close
+            body_ratio = body_size / candle_range
+            
+            # 2. Close should be in bottom 30% of range (minimal lower wick)
+            close_position = (current_close - current_low) / candle_range
+            
+            # Skip weak candles (small body or long lower wick)
+            if body_ratio < 0.50 or close_position > 0.30:
+                continue
+            
             alerts.append({
                 'type': 'BEARISH_ALERT',
                 'alert_date': df.at[i, 'date'],
