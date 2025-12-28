@@ -107,19 +107,28 @@ def identify_signals(df, percent_b):
     """
     Identify ALERT candles when %B crosses above 105 or below -5
     These represent significant buying/selling activity
+    Volume must be above 20-day average to qualify as alert
     """
     df['percent_b'] = percent_b
     
     alerts = []
     
-    for i in range(1, len(df)):
+    for i in range(20, len(df)):  # Start from index 20 to have volume average
         current_b = df.at[i, 'percent_b']
         prev_b = df.at[i-1, 'percent_b']
         current_open = df.at[i, 'open']
         current_close = df.at[i, 'close']
+        current_volume = df.at[i, 'volume']
         
         # Skip if NaN
         if pd.isna(current_b) or pd.isna(prev_b):
+            continue
+        
+        # Calculate 20-day average volume
+        avg_volume = df['volume'].iloc[i-20:i].mean()
+        
+        # Volume filter: Alert volume must be above average
+        if current_volume <= avg_volume:
             continue
         
         # Bullish alert: %B crosses above 105 AND candle closes green (close > open)
@@ -131,7 +140,10 @@ def identify_signals(df, percent_b):
                 'alert_close': df.at[i, 'close'],
                 'alert_high': df.at[i, 'high'],
                 'alert_low': df.at[i, 'low'],
-                'alert_b': current_b
+                'alert_b': current_b,
+                'alert_volume': current_volume,
+                'avg_volume': avg_volume,
+                'volume_ratio': current_volume / avg_volume
             })
         
         # Bearish alert: %B crosses below -5 AND candle closes red (close < open)
@@ -143,17 +155,20 @@ def identify_signals(df, percent_b):
                 'alert_close': df.at[i, 'close'],
                 'alert_high': df.at[i, 'high'],
                 'alert_low': df.at[i, 'low'],
-                'alert_b': current_b
+                'alert_b': current_b,
+                'alert_volume': current_volume,
+                'avg_volume': avg_volume,
+                'volume_ratio': current_volume / avg_volume
             })
     
     return alerts
 
 
-def analyze_signal_performance(df, alerts, confirmation_window=5):
+def analyze_signal_performance(df, alerts, confirmation_window=10):
     """
     CORRECT STRATEGY:
-    1. Trigger: %B > 105 (bullish) or < -5 (bearish) - mark candle high/low
-    2. Confirmation: Candle within 5 days with close > trigger high (bullish) or close < trigger low (bearish)
+    1. Trigger: %B > 105 (bullish) or < -5 (bearish) - mark candle high/low (volume must be above average)
+    2. Confirmation: Candle within 10 days with close > trigger high (bullish) or close < trigger low (bearish)
     3. Entry: At confirmation candle's close
     4. Stop Loss: Confirmation candle's low (bullish) or high (bearish)
     5. Exit: When low breaks SL (bullish) or high breaks SL (bearish)
@@ -567,7 +582,7 @@ def main():
     alerts = identify_signals(df, percent_b)
     
     print(f"Analyzing {len(alerts)} alerts for continuation and trade performance...")
-    results = analyze_signal_performance(df, alerts, confirmation_window=5)
+    results = analyze_signal_performance(df, alerts, confirmation_window=10)
     
     print("\n")
     print_analysis(df, results)
