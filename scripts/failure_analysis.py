@@ -129,8 +129,8 @@ def main():
     df_bottom = pd.DataFrame(all_bottom_trades)
     
     # Export to CSV
-    df_top.to_csv('c:/tradingapp/top_performers_trades.csv', index=False)
-    df_bottom.to_csv('c:/tradingapp/bottom_performers_trades.csv', index=False)
+    df_top.to_csv('/opt/tradingapp/top_performers_trades.csv', index=False)
+    df_bottom.to_csv('/opt/tradingapp/bottom_performers_trades.csv', index=False)
     
     print(f"\n✅ Exported trade logs:")
     print(f"   Top: {len(df_top)} trades → top_performers_trades.csv")
