@@ -45,10 +45,13 @@ def read_token_from_file():
         return None
 
 
-def get_access_token():
+def get_access_token(redis_url_override=None):
     """
     Retrieve Kite access token from file (primary) or Redis (fallback)
     Same pattern as ingestion service
+    
+    Args:
+        redis_url_override: Optional Redis URL to use instead of environment variable
     """
     # Try reading from file first (primary source)
     token = read_token_from_file()
@@ -58,7 +61,7 @@ def get_access_token():
         return token
     
     # Fallback to Redis
-    redis_url = os.getenv('REDIS_URL')
+    redis_url = redis_url_override or os.getenv('REDIS_URL')
     if redis_url:
         try:
             redis_client = redis.from_url(redis_url, decode_responses=True)
@@ -66,10 +69,10 @@ def get_access_token():
                 token = redis_client.get("kite_access_token")
                 
                 if token:
-                    print(f"✓ Access token retrieved from Redis")
+                    print(f"✓ Access token retrieved from Redis ({redis_url})")
                     return token
         except Exception as e:
-            print(f"Warning: Could not connect to Redis: {e}")
+            print(f"Warning: Could not connect to Redis ({redis_url}): {e}")
     
     # If neither works, raise error
     domain = os.getenv("DOMAIN", "localhost")
@@ -80,8 +83,12 @@ def get_access_token():
     )
 
 
-def load_credentials():
-    """Load API credentials from environment variables"""
+def load_credentials(redis_url=None):
+    """Load API credentials from environment variables
+    
+    Args:
+        redis_url: Optional Redis URL to override environment variable
+    """
     api_key = os.getenv('KITE_API_KEY')
     
     if not api_key:
@@ -89,7 +96,7 @@ def load_credentials():
         sys.exit(1)
     
     try:
-        access_token = get_access_token()
+        access_token = get_access_token(redis_url_override=redis_url)
     except Exception as e:
         print(f"ERROR: {str(e)}")
         sys.exit(1)
@@ -118,7 +125,7 @@ def validate_date(date_string):
             raise ValueError(f"Invalid date format: {date_string}. Use 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'")
 
 
-def fetch_historical_data(instrument_token, from_date, to_date, interval, continuous=False, oi=False):
+def fetch_historical_data(instrument_token, from_date, to_date, interval, continuous=False, oi=False, redis_url=None):
     """
     Fetch historical data from KiteConnect API
     
@@ -129,12 +136,13 @@ def fetch_historical_data(instrument_token, from_date, to_date, interval, contin
         interval (str): Candle interval (minute, day, 3minute, etc.)
         continuous (bool): Get continuous data for F&O contracts
         oi (bool): Include Open Interest data
+        redis_url (str): Optional Redis URL to override environment variable
     
     Returns:
         list: List of candle records
     """
     # Load credentials
-    api_key, access_token = load_credentials()
+    api_key, access_token = load_credentials(redis_url=redis_url)
     
     # Initialize KiteConnect
     kite = KiteConnect(api_key=api_key)
@@ -282,6 +290,8 @@ Examples:
                         help='Get continuous data for F&O contracts (0 or 1, default: 0)')
     parser.add_argument('--oi', type=int, choices=[0, 1], default=0,
                         help='Include Open Interest data (0 or 1, default: 0)')
+    parser.add_argument('--redis-url', type=str, default=None,
+                        help='Redis URL (e.g., redis://localhost:6379) - overrides environment variable')
     
     # Output options
     parser.add_argument('--format', type=str, choices=['json', 'csv', 'print'], default='json',
@@ -298,7 +308,8 @@ Examples:
         to_date=args.to_date,
         interval=args.interval,
         continuous=bool(args.continuous),
-        oi=bool(args.oi)
+        oi=bool(args.oi),
+        redis_url=args.redis_url
     )
     
     # Format and output
