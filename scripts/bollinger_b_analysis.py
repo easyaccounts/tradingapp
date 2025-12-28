@@ -253,7 +253,12 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
             quantity = int(50000 / entry_price)
             costs = calculate_transaction_costs(entry_price, exit_price, quantity)
             cost_pct = costs['cost_percentage']
-            net_pnl = final_pnl - cost_pct
+            
+            # Add slippage (0.05% for smart ladder orders in last 30 mins)
+            slippage_pct = 0.05
+            
+            # Net P&L = Gross - Transaction Costs - Slippage
+            net_pnl = final_pnl - cost_pct - slippage_pct
             
         else:  # BEARISH_ALERT
             # Wait for close < trigger low within confirmation_window days
@@ -335,7 +340,12 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
             quantity = int(50000 / entry_price)
             costs = calculate_transaction_costs(entry_price, exit_price, quantity)
             cost_pct = costs['cost_percentage']
-            net_pnl = final_pnl - cost_pct
+            
+            # Add slippage (0.05% for smart ladder orders in last 30 mins)
+            slippage_pct = 0.05
+            
+            # Net P&L = Gross - Transaction Costs - Slippage
+            net_pnl = final_pnl - cost_pct - slippage_pct
         
         results.append({
             'type': alert['type'].replace('_ALERT', ''),
@@ -353,6 +363,7 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
             'bars_held': bars_held,
             'pnl_gross': final_pnl,
             'transaction_cost': cost_pct,
+            'slippage': slippage_pct,
             'pnl_net': net_pnl,
             'max_favorable': max_favorable,
             'max_adverse': max_adverse
@@ -384,6 +395,8 @@ def print_analysis(df, results):
     
     print(f"\n💼 TRADE MANAGEMENT")
     print(f"   Position Size: ₹50,000 per trade")
+    print(f"   Entry Method: Smart ladder orders in last 30 mins")
+    print(f"   Slippage: 0.05% (ladder orders at expected close ±0.05%)")
     print(f"   Trigger: %B crosses 105 / -5 (mark candle high/low)")
     print(f"   Confirmation: Close > trigger high (bullish) or close < trigger low (bearish) within 10 days")
     print(f"   Entry: At confirmation candle close")
@@ -426,6 +439,7 @@ def print_analysis(df, results):
         print(f"   Average P&L (Gross): {avg_pnl_gross:+.2f}%")
         print(f"   Average P&L (Net): {avg_pnl_net:+.2f}%")
         print(f"   Average Transaction Cost: {avg_cost:.3f}%")
+        print(f"   Average Slippage: 0.050%")
         print(f"   Total P&L (Gross): {total_pnl_gross:+.2f}%")
         print(f"   Total P&L (Net): {total_pnl_net:+.2f}%")
         print(f"   Average Max Gain: {avg_favorable:+.2f}%")
@@ -469,6 +483,9 @@ def print_analysis(df, results):
         print(f"   Average P&L (Gross): {avg_pnl_gross:+.2f}%")
         print(f"   Average P&L (Net): {avg_pnl_net:+.2f}%")
         print(f"   Average Transaction Cost: {avg_cost:.3f}%")
+        print(f"   Average Slippage: 0.050%")
+        print(f"   Total P&L (Gross): {total_pnl_gross:+.2f}%")
+        print(f"   Total P&L (Net): {total_pnl_net:+.2f}%")
         print(f"   Total P&L (Gross): {total_pnl_gross:+.2f}%")
         print(f"   Total P&L (Net): {total_pnl_net:+.2f}%")
         print(f"   Average Max Gain: {avg_favorable:+.2f}%")
@@ -508,9 +525,11 @@ def print_analysis(df, results):
         print(f"   Total P&L (Gross): {total_pnl_gross:+.2f}%")
         print(f"   Total P&L (Net): {total_pnl_net:+.2f}%")
         print(f"   Total Transaction Costs: {total_cost:.2f}%")
+        print(f"   Total Slippage: {len(results) * 0.05:.2f}%")
         print(f"   Average P&L per Trade (Gross): {avg_pnl_gross:+.2f}%")
         print(f"   Average P&L per Trade (Net): {avg_pnl_net:+.2f}%")
         print(f"   Average Transaction Cost per Trade: {avg_cost:.3f}%")
+        print(f"   Average Slippage per Trade: 0.050%")
         
         # Current position analysis
         current_b = df.iloc[-1]['percent_b']
