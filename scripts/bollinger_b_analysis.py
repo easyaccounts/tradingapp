@@ -9,6 +9,58 @@ import numpy as np
 import sys
 
 
+def calculate_transaction_costs(buy_price, sell_price, quantity):
+    """
+    Calculate all transaction costs for delivery equity trade
+    
+    Args:
+        buy_price: Entry price
+        sell_price: Exit price
+        quantity: Number of shares (default 1 for percentage calculation)
+    
+    Returns:
+        dict with breakdown of all costs
+    """
+    buy_turnover = buy_price * quantity
+    sell_turnover = sell_price * quantity
+    total_turnover = buy_turnover + sell_turnover
+    
+    # 1. Brokerage: Rs 15 per order (buy + sell)
+    brokerage = 15 + 15  # Rs 30 total
+    
+    # 2. STT (Securities Transaction Tax): 0.1% on sell side
+    stt = sell_turnover * 0.001
+    
+    # 3. Exchange transaction charges: 0.00345% on total turnover (NSE)
+    exchange_charges = total_turnover * 0.0000345
+    
+    # 4. GST: 18% on (Brokerage + Exchange charges)
+    gst = (brokerage + exchange_charges) * 0.18
+    
+    # 5. SEBI charges: 0.0001% on total turnover
+    sebi_charges = total_turnover * 0.000001
+    
+    # 6. Stamp duty: 0.015% on buy side (capped at Rs 1500 per trade)
+    stamp_duty = min(buy_turnover * 0.00015, 1500)
+    
+    # Total charges
+    total_charges = brokerage + stt + exchange_charges + gst + sebi_charges + stamp_duty
+    
+    # Calculate as percentage of position size (buy turnover)
+    cost_percentage = (total_charges / buy_turnover) * 100
+    
+    return {
+        'total_charges': total_charges,
+        'cost_percentage': cost_percentage,
+        'brokerage': brokerage,
+        'stt': stt,
+        'exchange_charges': exchange_charges,
+        'gst': gst,
+        'sebi_charges': sebi_charges,
+        'stamp_duty': stamp_duty
+    }
+
+
 def triangular_ma(series, period):
     """Triangular Moving Average - ChartIQ methodology
     TMA is calculated by applying SMA twice with period (N+1)/2
@@ -193,7 +245,14 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
                 exit_reason = 'STILL_OPEN'
                 bars_held = len(df) - entry_idx - 1
             
+            # Calculate gross and net P&L
             final_pnl = (exit_price - entry_price) / entry_price * 100
+            
+            # Calculate transaction costs (use entry price as reference)
+            # Assuming 1 share for percentage calculation
+            costs = calculate_transaction_costs(entry_price, exit_price, 1)
+            cost_pct = costs['cost_percentage']
+            net_pnl = final_pnl - cost_pct
             
         else:  # BEARISH_ALERT
             # Wait for close < trigger low within confirmation_window days
@@ -267,7 +326,13 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
                 exit_reason = 'STILL_OPEN'
                 bars_held = len(df) - entry_idx - 1
             
+            # Calculate gross and net P&L
             final_pnl = (entry_price - exit_price) / entry_price * 100
+            
+            # Calculate transaction costs
+            costs = calculate_transaction_costs(entry_price, exit_price, 1)
+            cost_pct = costs['cost_percentage']
+            net_pnl = final_pnl - cost_pct
         
         results.append({
             'type': alert['type'].replace('_ALERT', ''),
@@ -283,7 +348,9 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
             'exit_price': exit_price,
             'exit_reason': exit_reason,
             'bars_held': bars_held,
-            'pnl': final_pnl,
+            'pnl_gross': final_pnl,
+            'transaction_cost': cost_pct,
+            'pnl_net': net_pnl,
             'max_favorable': max_favorable,
             'max_adverse': max_adverse
         })
@@ -335,11 +402,15 @@ def print_analysis(df, results):
     # Bullish stats
     if bullish_signals:
         print(f"\n🟢 BULLISH SIGNALS ANALYSIS:")
-        winning_trades = sum(1 for r in bullish_signals if r['pnl'] > 0)
-        avg_pnl = np.mean([r['pnl'] for r in bullish_signals])
+        winning_trades = sum(1 for r in bullish_signals if r['pnl_net'] > 0)
+        avg_pnl_gross = np.mean([r['pnl_gross'] for r in bullish_signals])
+        avg_pnl_net = np.mean([r['pnl_net'] for r in bullish_signals])
+        avg_cost = np.mean([r['transaction_cost'] for r in bullish_signals])
         avg_favorable = np.mean([r['max_favorable'] for r in bullish_signals])
         avg_adverse = np.mean([r['max_adverse'] for r in bullish_signals])
         avg_bars = np.mean([r['bars_held'] for r in bullish_signals])
+        total_pnl_gross = sum([r['pnl_gross'] for r in bullish_signals])
+        total_pnl_net = sum([r['pnl_net'] for r in bullish_signals])
         
         # Exit reason breakdown
         exit_reasons = {}
@@ -348,7 +419,11 @@ def print_analysis(df, results):
         
         print(f"   Total Confirmed Trades: {len(bullish_signals)}")
         print(f"   Winning Trades: {winning_trades} ({winning_trades/len(bullish_signals)*100:.1f}%)")
-        print(f"   Average P&L: {avg_pnl:+.2f}%")
+        print(f"   Average P&L (Gross): {avg_pnl_gross:+.2f}%")
+        print(f"   Average P&L (Net): {avg_pnl_net:+.2f}%")
+        print(f"   Average Transaction Cost: {avg_cost:.3f}%")
+        print(f"   Total P&L (Gross): {total_pnl_gross:+.2f}%")
+        print(f"   Total P&L (Net): {total_pnl_net:+.2f}%")
         print(f"   Average Max Gain: {avg_favorable:+.2f}%")
         print(f"   Average Max Drawdown: {avg_adverse:+.2f}%")
         print(f"   Average Hold Time: {avg_bars:.0f} bars")
@@ -359,22 +434,26 @@ def print_analysis(df, results):
         
         print(f"\n   Latest 5 Bullish Trades:")
         for r in bullish_signals[-5:]:
-            win_loss = "WIN" if r['pnl'] > 0 else "LOSS"
+            win_loss = "WIN" if r['pnl_net'] > 0 else "LOSS"
             days_held = r['bars_held']
             print(f"   Trigger: {r['alert_date'].strftime('%Y-%m-%d')} ₹{r['alert_price']:.2f} (%B: {r['alert_b']:.0f})")
             print(f"   Entry: {r['entry_date'].strftime('%Y-%m-%d')} ₹{r['entry_price']:.2f} | SL: ₹{r['stop_loss']:.2f}")
             print(f"   Exit: {r['exit_date'].strftime('%Y-%m-%d')} ₹{r['exit_price']:.2f}")
-            print(f"   Hold: {days_held} days | P&L: {r['pnl']:+.2f}% | {win_loss} | {r['exit_reason']}")
+            print(f"   Hold: {days_held} days | P&L (Gross): {r['pnl_gross']:+.2f}% | P&L (Net): {r['pnl_net']:+.2f}% | {win_loss} | {r['exit_reason']}")
             print()
     
     # Bearish stats
     if bearish_signals:
         print(f"\n🔴 BEARISH SIGNALS ANALYSIS:")
-        winning_trades = sum(1 for r in bearish_signals if r['pnl'] > 0)
-        avg_pnl = np.mean([r['pnl'] for r in bearish_signals])
+        winning_trades = sum(1 for r in bearish_signals if r['pnl_net'] > 0)
+        avg_pnl_gross = np.mean([r['pnl_gross'] for r in bearish_signals])
+        avg_pnl_net = np.mean([r['pnl_net'] for r in bearish_signals])
+        avg_cost = np.mean([r['transaction_cost'] for r in bearish_signals])
         avg_favorable = np.mean([r['max_favorable'] for r in bearish_signals])
         avg_adverse = np.mean([r['max_adverse'] for r in bearish_signals])
         avg_bars = np.mean([r['bars_held'] for r in bearish_signals])
+        total_pnl_gross = sum([r['pnl_gross'] for r in bearish_signals])
+        total_pnl_net = sum([r['pnl_net'] for r in bearish_signals])
         
         # Exit reason breakdown
         exit_reasons = {}
@@ -383,7 +462,11 @@ def print_analysis(df, results):
         
         print(f"   Total Confirmed Trades: {len(bearish_signals)}")
         print(f"   Winning Trades: {winning_trades} ({winning_trades/len(bearish_signals)*100:.1f}%)")
-        print(f"   Average P&L: {avg_pnl:+.2f}%")
+        print(f"   Average P&L (Gross): {avg_pnl_gross:+.2f}%")
+        print(f"   Average P&L (Net): {avg_pnl_net:+.2f}%")
+        print(f"   Average Transaction Cost: {avg_cost:.3f}%")
+        print(f"   Total P&L (Gross): {total_pnl_gross:+.2f}%")
+        print(f"   Total P&L (Net): {total_pnl_net:+.2f}%")
         print(f"   Average Max Gain: {avg_favorable:+.2f}%")
         print(f"   Average Max Drawdown: {avg_adverse:+.2f}%")
         print(f"   Average Hold Time: {avg_bars:.0f} bars")
@@ -394,12 +477,12 @@ def print_analysis(df, results):
         
         print(f"\n   Latest 5 Bearish Trades:")
         for r in bearish_signals[-5:]:
-            win_loss = "WIN" if r['pnl'] > 0 else "LOSS"
+            win_loss = "WIN" if r['pnl_net'] > 0 else "LOSS"
             days_held = r['bars_held']
             print(f"   Trigger: {r['alert_date'].strftime('%Y-%m-%d')} ₹{r['alert_price']:.2f} (%B: {r['alert_b']:.0f})")
             print(f"   Entry: {r['entry_date'].strftime('%Y-%m-%d')} ₹{r['entry_price']:.2f} | SL: ₹{r['stop_loss']:.2f}")
             print(f"   Exit: {r['exit_date'].strftime('%Y-%m-%d')} ₹{r['exit_price']:.2f}")
-            print(f"   Hold: {days_held} days | P&L: {r['pnl']:+.2f}% | {win_loss} | {r['exit_reason']}")
+            print(f"   Hold: {days_held} days | P&L (Gross): {r['pnl_gross']:+.2f}% | P&L (Net): {r['pnl_net']:+.2f}% | {win_loss} | {r['exit_reason']}")
             print()
     
     # Overall stats
@@ -408,14 +491,22 @@ def print_analysis(df, results):
     print("=" * 100)
     
     if results:
-        all_winning = sum(1 for r in results if r['pnl'] > 0)
-        total_pnl = sum(r['pnl'] for r in results)
-        avg_pnl = np.mean([r['pnl'] for r in results])
+        all_winning = sum(1 for r in results if r['pnl_net'] > 0)
+        total_pnl_gross = sum(r['pnl_gross'] for r in results)
+        total_pnl_net = sum(r['pnl_net'] for r in results)
+        avg_pnl_gross = np.mean([r['pnl_gross'] for r in results])
+        avg_pnl_net = np.mean([r['pnl_net'] for r in results])
+        avg_cost = np.mean([r['transaction_cost'] for r in results])
+        total_cost = sum(r['transaction_cost'] for r in results)
         
         print(f"\n   Total Confirmed Trades: {len(results)}")
         print(f"   Win Rate: {all_winning}/{len(results)} ({all_winning/len(results)*100:.1f}%)")
-        print(f"   Total P&L: {total_pnl:+.2f}%")
-        print(f"   Average P&L per Trade: {avg_pnl:+.2f}%")
+        print(f"   Total P&L (Gross): {total_pnl_gross:+.2f}%")
+        print(f"   Total P&L (Net): {total_pnl_net:+.2f}%")
+        print(f"   Total Transaction Costs: {total_cost:.2f}%")
+        print(f"   Average P&L per Trade (Gross): {avg_pnl_gross:+.2f}%")
+        print(f"   Average P&L per Trade (Net): {avg_pnl_net:+.2f}%")
+        print(f"   Average Transaction Cost per Trade: {avg_cost:.3f}%")
         
         # Current position analysis
         current_b = df.iloc[-1]['percent_b']

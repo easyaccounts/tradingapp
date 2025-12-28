@@ -103,20 +103,24 @@ def analyze_symbol(symbol):
                 'candles': len(df)
             }
         
-        # Calculate stats
-        winning_trades = sum(1 for r in results if r['pnl'] > 0)
+        # Calculate stats using NET P&L
+        winning_trades = sum(1 for r in results if r['pnl_net'] > 0)
         total_trades = len(results)
         win_rate = winning_trades / total_trades * 100 if total_trades > 0 else 0
-        total_pnl = sum(r['pnl'] for r in results)
-        avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+        total_pnl_gross = sum(r['pnl_gross'] for r in results)
+        total_pnl_net = sum(r['pnl_net'] for r in results)
+        avg_pnl_gross = total_pnl_gross / total_trades if total_trades > 0 else 0
+        avg_pnl_net = total_pnl_net / total_trades if total_trades > 0 else 0
         
         return {
             'symbol': symbol,
             'total_trades': total_trades,
             'winning_trades': winning_trades,
             'win_rate': win_rate,
-            'total_pnl': total_pnl,
-            'avg_pnl': avg_pnl,
+            'total_pnl_gross': total_pnl_gross,
+            'total_pnl_net': total_pnl_net,
+            'avg_pnl_gross': avg_pnl_gross,
+            'avg_pnl_net': avg_pnl_net,
             'candles': len(df),
             'alerts': len(alerts)
         }
@@ -148,56 +152,60 @@ def main():
             print(f"⚪ No trades")
         else:
             status = "✅" if result['total_pnl'] > 0 else "❌"
-            print(f"{status} {result['total_trades']:3d} trades | {result['win_rate']:5.1f}% win | {result['total_pnl']:+7.2f}% P&L")
+            print(f"{status} {result['total_trades']:3d} trades | {result['win_rate']:5.1f}% win | Gross: {result['total_pnl_gross']:+7.2f}% | Net: {result['total_pnl_net']:+7.2f}%")
         
         results.append(result)
     
     # Summary table
     print()
     print("=" * 100)
-    print(" " * 40 + "SUMMARY RESULTS")
+    print(" " * 35 + "SUMMARY RESULTS (WITH TRANSACTION COSTS)")
     print("=" * 100)
     print()
     
-    # Sort by total P&L
-    results_sorted = sorted([r for r in results if r['total_trades'] > 0], key=lambda x: x['total_pnl'], reverse=True)
+    # Sort by net P&L
+    results_sorted = sorted([r for r in results if r['total_trades'] > 0], key=lambda x: x['total_pnl_net'], reverse=True)
     
-    print(f"{'Rank':<6} {'Symbol':<15} {'Trades':<8} {'Win %':<8} {'Total P&L':<12} {'Avg P&L':<10} {'Alerts':<8}")
+    print(f"{'Rank':<6} {'Symbol':<15} {'Trades':<8} {'Win %':<8} {'Gross P&L':<12} {'Net P&L':<12} {'Avg Net':<10} {'Status':<8}")
     print("-" * 100)
     
     for i, r in enumerate(results_sorted, 1):
-        status = "✅" if r['total_pnl'] > 0 else "❌"
-        print(f"{i:<6} {r['symbol']:<15} {r['total_trades']:<8} {r['win_rate']:<7.1f}% {r['total_pnl']:+11.2f}% {r['avg_pnl']:+9.2f}% {r['alerts']:<8} {status}")
+        status = "✅" if r['total_pnl_net'] > 0 else "❌"
+        print(f"{i:<6} {r['symbol']:<15} {r['total_trades']:<8} {r['win_rate']:<7.1f}% {r['total_pnl_gross']:+11.2f}% {r['total_pnl_net']:+11.2f}% {r['avg_pnl_net']:+9.2f}% {status}")
     
     # Overall statistics
-    profitable_symbols = sum(1 for r in results_sorted if r['total_pnl'] > 0)
+    profitable_symbols = sum(1 for r in results_sorted if r['total_pnl_net'] > 0)
     total_symbols = len(results_sorted)
     total_trades = sum(r['total_trades'] for r in results_sorted)
     total_wins = sum(r['winning_trades'] for r in results_sorted)
     overall_winrate = (total_wins / total_trades * 100) if total_trades > 0 else 0
-    overall_pnl = sum(r['total_pnl'] for r in results_sorted)
+    overall_pnl_gross = sum(r['total_pnl_gross'] for r in results_sorted)
+    overall_pnl_net = sum(r['total_pnl_net'] for r in results_sorted)
+    total_cost = overall_pnl_gross - overall_pnl_net
     
     print()
     print("=" * 100)
-    print(f"Profitable Symbols: {profitable_symbols}/{total_symbols} ({profitable_symbols/total_symbols*100:.1f}%)")
+    print(f"Profitable Symbols (Net): {profitable_symbols}/{total_symbols} ({profitable_symbols/total_symbols*100:.1f}%)")
     print(f"Total Trades: {total_trades}")
     print(f"Overall Win Rate: {overall_winrate:.1f}%")
-    print(f"Overall P&L: {overall_pnl:+.2f}%")
-    print(f"Average P&L per Symbol: {overall_pnl/total_symbols:+.2f}%")
+    print(f"Overall P&L (Gross): {overall_pnl_gross:+.2f}%")
+    print(f"Overall P&L (Net): {overall_pnl_net:+.2f}%")
+    print(f"Total Transaction Costs: {total_cost:.2f}%")
+    print(f"Average P&L per Symbol (Net): {overall_pnl_net/total_symbols:+.2f}%")
     print("=" * 100)
     
     # Top 10 performers
     print()
-    print("🏆 TOP 10 PERFORMERS:")
+    print("🏆 TOP 10 PERFORMERS (Net P&L):")
     for i, r in enumerate(results_sorted[:10], 1):
-        print(f"  {i:2d}. {r['symbol']:<12} {r['total_pnl']:+7.2f}% ({r['total_trades']} trades, {r['win_rate']:.1f}% win)")
+        print(f"  {i:2d}. {r['symbol']:<12} Net: {r['total_pnl_net']:+7.2f}% (Gross: {r['total_pnl_gross']:+7.2f}%) | {r['total_trades']} trades, {r['win_rate']:.1f}% win")
     
     # Bottom 10 performers
     if len(results_sorted) >= 10:
         print()
-        print("📉 BOTTOM 10 PERFORMERS:")
+        print("📉 BOTTOM 10 PERFORMERS (Net P&L):")
         for i, r in enumerate(results_sorted[-10:], 1):
-            print(f"  {i:2d}. {r['symbol']:<12} {r['total_pnl']:+7.2f}% ({r['total_trades']} trades, {r['win_rate']:.1f}% win)")
+            print(f"  {i:2d}. {r['symbol']:<12} Net: {r['total_pnl_net']:+7.2f}% (Gross: {r['total_pnl_gross']:+7.2f}%) | {r['total_trades']} trades, {r['win_rate']:.1f}% win")
     
     print()
     print("=" * 100)
