@@ -96,14 +96,35 @@ def get_api_key(redis_url):
 
 
 def get_db_connection():
-    """Connect to PostgreSQL database"""
-    return psycopg2.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        port=os.getenv('DB_PORT', '5432'),
-        database=os.getenv('DB_NAME', 'tradingdb'),
-        user=os.getenv('DB_USER', 'tradinguser'),
-        password=os.getenv('DB_PASSWORD', '5Ke1Ne9TLlI1TNv1F6JEfefNvDvy0jZv66Sh0vqQJKQ=')
-    )
+    """Connect to PostgreSQL database - try configured host, fallback to localhost"""
+    db_host = os.getenv('DB_HOST', 'localhost')
+    db_port = os.getenv('DB_PORT', '5432')
+    db_name = os.getenv('DB_NAME', 'tradingdb')
+    db_user = os.getenv('DB_USER', 'tradinguser')
+    db_password = os.getenv('DB_PASSWORD', '5Ke1Ne9TLlI1TNv1F6JEfefNvDvy0jZv66Sh0vqQJKQ=')
+    
+    # Try configured host first
+    try:
+        return psycopg2.connect(
+            host=db_host,
+            port=db_port,
+            database=db_name,
+            user=db_user,
+            password=db_password
+        )
+    except psycopg2.OperationalError as e:
+        # If pgbouncer or other Docker hostname fails, try localhost
+        if db_host != 'localhost':
+            print(f"   Configured host '{db_host}' failed, trying localhost...")
+            return psycopg2.connect(
+                host='localhost',
+                port=db_port,
+                database=db_name,
+                user=db_user,
+                password=db_password
+            )
+        else:
+            raise e
 
 
 def fetch_and_store_futures_data(kite, instrument_token, symbol, from_date, to_date, conn):
