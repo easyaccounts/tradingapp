@@ -191,7 +191,7 @@ def main():
     print("\n1. Getting Kite credentials...")
     try:
         access_token = get_access_token(redis_url)
-        print("   ✓ Access token retrieved from Redis")
+        print("   ✓ Access token retrieved")
     except Exception as e:
         print(f"   ✗ Failed to get access token: {e}")
         return
@@ -212,8 +212,14 @@ def main():
     
     # Connect to database
     print("\n3. Connecting to database...")
-    conn = get_db_connection()
-    print("   ✓ Database connected")
+    print(f"   Using DB_HOST: {os.getenv('DB_HOST', 'localhost')}")
+    try:
+        conn = get_db_connection()
+        print("   ✓ Database connected")
+    except Exception as e:
+        print(f"   ✗ Database connection failed: {e}")
+        print("   Make sure PostgreSQL is running and DB_HOST is set correctly")
+        return
     
     # NIFTY futures instrument token (current month contract)
     # We use continuous=True, so it will stitch contracts automatically
