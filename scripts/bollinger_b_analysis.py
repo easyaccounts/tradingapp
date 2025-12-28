@@ -77,6 +77,49 @@ def triangular_ma(series, period):
     return tma
 
 
+def calculate_adx(df, period=14):
+    """
+    Calculate ADX (Average Directional Index)
+    ADX measures trend strength (0-100):
+    - ADX < 25: Weak/no trend
+    - ADX > 25: Strong trend
+    - ADX > 50: Very strong trend
+    """
+    high = df['high']
+    low = df['low']
+    close = df['close']
+    
+    # Calculate True Range (TR)
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    # Calculate Directional Movement
+    high_diff = high - high.shift(1)
+    low_diff = low.shift(1) - low
+    
+    plus_dm = np.where((high_diff > low_diff) & (high_diff > 0), high_diff, 0)
+    minus_dm = np.where((low_diff > high_diff) & (low_diff > 0), low_diff, 0)
+    
+    # Convert to Series
+    plus_dm = pd.Series(plus_dm, index=df.index)
+    minus_dm = pd.Series(minus_dm, index=df.index)
+    
+    # Smooth TR, +DM, -DM using Wilder's smoothing (similar to EMA with alpha=1/period)
+    atr = tr.ewm(alpha=1/period, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1/period, adjust=False).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(alpha=1/period, adjust=False).mean() / atr)
+    
+    # Calculate DX (Directional Index)
+    dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+    
+    # Calculate ADX (smoothed DX)
+    adx = dx.ewm(alpha=1/period, adjust=False).mean()
+    
+    return adx, plus_di, minus_di
+
+
 def bollinger_percent_b(series, period=20, std_dev=2, ma_type='sma'):
     """
     Bollinger %B calculation
@@ -103,13 +146,15 @@ def bollinger_percent_b(series, period=20, std_dev=2, ma_type='sma'):
     return percent_b * 100, middle_band, upper_band, lower_band
 
 
-def identify_signals(df, percent_b):
+def identify_signals(df, percent_b, adx, min_adx=25):
     """
     Identify ALERT candles when %B crosses above 105 or below -5
     These represent significant buying/selling activity
     Volume must be above 20-day average to qualify as alert
+    ADX must be above min_adx (default 25) to ensure trending market
     """
     df['percent_b'] = percent_b
+    df['adx'] = adx
     
     alerts = []
     
@@ -119,9 +164,14 @@ def identify_signals(df, percent_b):
         current_open = df.at[i, 'open']
         current_close = df.at[i, 'close']
         current_volume = df.at[i, 'volume']
+        current_adx = df.at[i, 'adx']
         
         # Skip if NaN
-        if pd.isna(current_b) or pd.isna(prev_b):
+        if pd.isna(current_b) or pd.isna(prev_b) or pd.isna(current_adx):
+            continue
+        
+        # ADX filter: Must have strong trend (ADX >= min_adx)
+        if current_adx < min_adx:
             continue
         
         # Calculate 20-day average volume
@@ -143,7 +193,8 @@ def identify_signals(df, percent_b):
                 'alert_b': current_b,
                 'alert_volume': current_volume,
                 'avg_volume': avg_volume,
-                'volume_ratio': current_volume / avg_volume
+                'volume_ratio': current_volume / avg_volume,
+                'alert_adx': current_adx
             })
         
         # Bearish alert: %B crosses below -5 AND candle closes red (close < open)
@@ -158,7 +209,8 @@ def identify_signals(df, percent_b):
                 'alert_b': current_b,
                 'alert_volume': current_volume,
                 'avg_volume': avg_volume,
-                'volume_ratio': current_volume / avg_volume
+                'volume_ratio': current_volume / avg_volume,
+                'alert_adx': current_adx
             })
     
     return alerts
@@ -648,8 +700,11 @@ def main():
     print("Calculating Bollinger %B on Volume with Simple MA...")
     percent_b, middle, upper, lower = bollinger_percent_b(df['volume'], period=20, std_dev=2, ma_type='sma')
     
-    print("Identifying extreme signals...")
-    alerts = identify_signals(df, percent_b)
+    print("Calculating ADX (14-period) for trend strength filter...")
+    adx, plus_di, minus_di = calculate_adx(df, period=14)
+    
+    print("Identifying extreme signals (with ADX >= 25 filter)...")
+    alerts = identify_signals(df, percent_b, adx, min_adx=25)
     
     print(f"Analyzing {len(alerts)} alerts for continuation and trade performance...")
     results = analyze_signal_performance(df, alerts, confirmation_window=10)
