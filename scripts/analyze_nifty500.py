@@ -10,8 +10,17 @@ import psycopg2
 import os
 from datetime import datetime
 
-# Import analysis functions from bollinger_b_analysis
-exec(open('scripts/bollinger_b_analysis.py').read())
+# Add parent directory to path to import from bollinger_b_analysis
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+# Import only the functions we need, not the main execution
+from scripts.bollinger_b_analysis import (
+    calculate_transaction_costs,
+    triangular_ma,
+    bollinger_percent_b,
+    identify_signals,
+    analyze_signal_performance
+)
 
 
 def get_db_connection():
