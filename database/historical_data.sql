@@ -47,7 +47,7 @@ ON historical_data (trading_symbol, timeframe, time DESC);
 CREATE INDEX IF NOT EXISTS idx_historical_timeframe 
 ON historical_data (timeframe, time DESC);
 
--- Compression policy (compress data older than 30 days)
+-- Compression policy (standard TimescaleDB compression, not columnstore)
 SELECT add_compression_policy('historical_data', INTERVAL '30 days', if_not_exists => TRUE);
 
 -- Retention policy (optional - keep data for 5 years)
@@ -77,13 +77,13 @@ CREATE OR REPLACE FUNCTION get_historical_data(
     p_to_date TIMESTAMPTZ
 )
 RETURNS TABLE (
-    time TIMESTAMPTZ,
-    open NUMERIC,
-    high NUMERIC,
-    low NUMERIC,
-    close NUMERIC,
-    volume BIGINT,
-    oi BIGINT
+    result_time TIMESTAMPTZ,
+    result_open NUMERIC,
+    result_high NUMERIC,
+    result_low NUMERIC,
+    result_close NUMERIC,
+    result_volume BIGINT,
+    result_oi BIGINT
 ) AS $$
 BEGIN
     RETURN QUERY
