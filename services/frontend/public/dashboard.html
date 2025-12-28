@@ -334,47 +334,39 @@
         </div>
     </div>
 
-    <!-- Historical Analysis Section -->
+    <!-- Toxicity Metrics Section -->
     <div style="margin-top: 30px;">
-        <div class="card-title" style="margin-bottom: 15px; font-size: 20px; color: #fff;">📈 Intraday Historical Analysis</div>
+        <div class="card-title" style="margin-bottom: 15px; font-size: 20px; color: #fff;">🔥 Orderflow Toxicity Analysis (Last 500 Ticks)</div>
         
         <div class="dashboard-grid">
-            <!-- Price Action Card -->
+            <!-- Instrument Rankings Card (Featured) -->
+            <div class="card" style="grid-column: span 3;">
+                <div class="card-title">🏆 Top Instruments by Toxicity (Kyle's Lambda)</div>
+                <div id="rankedInstrumentsCard">
+                    <div class="loading">Loading instrument rankings...</div>
+                </div>
+            </div>
+
+            <!-- Average Toxicity Card -->
             <div class="card" style="grid-column: span 2;">
-                <div class="card-title">📉 Price Action (5-Min Candles)</div>
-                <div id="priceActionCard">
-                    <div class="loading">Loading historical data...</div>
+                <div class="card-title">📊 Average Toxicity Metrics</div>
+                <div id="avgToxicityCard">
+                    <div class="loading">Loading toxicity data...</div>
                 </div>
             </div>
 
-            <!-- Volume Profile Card -->
+            <!-- Toxicity Trend Card -->
             <div class="card">
-                <div class="card-title">🔊 Volume Profile by Price</div>
-                <div id="volumeProfileCard">
+                <div class="card-title">📈 Toxicity Trend</div>
+                <div id="toxicityTrendCard">
                     <div class="loading">Loading...</div>
                 </div>
             </div>
 
-            <!-- OI Evolution Card -->
-            <div class="card">
-                <div class="card-title">📊 OI Evolution</div>
-                <div id="oiEvolutionCard">
-                    <div class="loading">Loading...</div>
-                </div>
-            </div>
-
-            <!-- Key Levels Card -->
-            <div class="card">
-                <div class="card-title">🎯 Key Price Levels</div>
-                <div id="keyLevelsCard">
-                    <div class="loading">Loading...</div>
-                </div>
-            </div>
-
-            <!-- Day Stats Card -->
-            <div class="card">
-                <div class="card-title">📊 Day Statistics</div>
-                <div id="dayStatsCard">
+            <!-- High Toxicity Events Card -->
+            <div class="card" style="grid-column: span 3;">
+                <div class="card-title">⚠️ High Toxicity Events (Top 10%)</div>
+                <div id="highToxicityCard">
                     <div class="loading">Loading...</div>
                 </div>
             </div>
@@ -587,166 +579,301 @@
             return num.toString();
         }
 
-        async function fetchHistoricalData() {
+        async function fetchToxicityData() {
             try {
-                const response = await fetch(`${API_BASE}/api/orderflow/history`);
+                const response = await fetch(`${API_BASE}/api/orderflow/toxicity?limit=500`);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
                 
                 const data = await response.json();
-                
-                // Historical endpoint will need to be updated separately or disabled for now
-                console.log('Historical data:', data);
+                updateToxicityDisplay(data);
                 
             } catch (error) {
-                console.error('Historical data fetch error:', error);
+                console.error('Toxicity data fetch error:', error);
+                document.getElementById('avgToxicityCard').innerHTML = '<div style="color: #f44336;">Failed to load toxicity data</div>';
             }
         }
 
-        function updatePriceAction(candles) {
-            if (!candles || candles.length === 0) {
-                document.getElementById('priceActionCard').innerHTML = '<div>No price action data available</div>';
+        function updateToxicityDisplay(data) {
+            updateRankedInstruments(data.ranked_instruments);
+            updateAvgToxicity(data.avg_toxicity);
+            updateToxicityTrend(data.toxicity_trend);
+            updateHighToxicityEvents(data.high_toxicity_events);
+        }
+
+        function updateRankedInstruments(instruments) {
+            if (!instruments || instruments.length === 0) {
+                document.getElementById('rankedInstrumentsCard').innerHTML = '<div>No instrument data available</div>';
                 return;
             }
 
-            let html = '<div style="max-height: 300px; overflow-y: auto;">';
-            html += '<table style="width: 100%; font-size: 12px;">';
-            html += '<thead><tr><th>Time</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>Volume</th><th>OI</th></tr></thead>';
+            let html = '<div style="max-height: 500px; overflow-y: auto;">';
+            html += '<table style="width: 100%; font-size: 11px; border-collapse: collapse;">';
+            html += '<thead style="position: sticky; top: 0; background: #1a1f3a; z-index: 1;"><tr style="border-bottom: 2px solid #2a3150;">';
+            html += '<th style="padding: 8px; text-align: center;">#</th>';
+            html += '<th style="padding: 8px; text-align: left;">Symbol</th>';
+            html += '<th style="padding: 8px; text-align: center;">Type</th>';
+            html += '<th style="padding: 8px; text-align: right;">Strike</th>';
+            html += '<th style="padding: 8px; text-align: left;">Expiry</th>';
+            html += '<th style="padding: 8px; text-align: right;">Kyle λ</th>';
+            html += '<th style="padding: 8px; text-align: center;">Trend</th>';
+            html += '<th style="padding: 8px; text-align: right;">Depth Tox</th>';
+            html += '<th style="padding: 8px; text-align: right;">Price</th>';
+            html += '<th style="padding: 8px; text-align: right;">CVD Δ</th>';
+            html += '</tr></thead>';
             html += '<tbody>';
             
-            candles.forEach(candle => {
-                const change = candle.close - candle.open;
-                const colorClass = change > 0 ? 'positive' : (change < 0 ? 'negative' : '');
+            instruments.forEach((inst, idx) => {
+                const bgColor = idx % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
+                const typeColor = inst.instrument_type === 'FUTURES' ? '#667eea' : inst.instrument_type === 'CALLS' ? '#4caf50' : '#f44336';
+                
+                // Toxicity level coloring
+                let toxicityColor = '#4caf50'; // LOW
+                let toxicityBg = 'transparent';
+                if (inst.kyle_lambda > 0.001) {
+                    toxicityColor = '#f44336'; // EXTREME
+                    toxicityBg = 'rgba(244, 67, 54, 0.1)';
+                } else if (inst.kyle_lambda > 0.0005) {
+                    toxicityColor = '#ff9800'; // HIGH
+                    toxicityBg = 'rgba(255, 152, 0, 0.08)';
+                } else if (inst.kyle_lambda > 0.0001) {
+                    toxicityColor = '#ffc107'; // MODERATE
+                }
+                
+                // Trend indicator styling
+                const trendColor = inst.trend === '↑' ? '#f44336' : inst.trend === '↓' ? '#4caf50' : '#666';
+                const trendSize = inst.trend === '→' ? '14px' : '16px';
                 
                 html += `
-                    <tr>
-                        <td>${candle.time}</td>
-                        <td>${formatNumber(candle.open)}</td>
-                        <td>${formatNumber(candle.high)}</td>
-                        <td>${formatNumber(candle.low)}</td>
-                        <td class="${colorClass}">${formatNumber(candle.close)}</td>
-                        <td>${formatLargeNumber(candle.volume)}</td>
-                        <td>${formatLargeNumber(candle.oi)}</td>
+                    <tr style="background: ${bgColor}; border-bottom: 1px solid #2a2f4a;">
+                        <td style="padding: 8px; text-align: center; font-weight: 600; color: #888;">${inst.rank}</td>
+                        <td style="padding: 8px; font-family: 'Courier New', monospace; font-weight: 600; font-size: 10px;">${inst.trading_symbol}</td>
+                        <td style="padding: 8px; text-align: center;"><span style="color: ${typeColor}; font-weight: 600; font-size: 9px;">${inst.instrument_type}</span></td>
+                        <td style="padding: 8px; text-align: right;">${inst.strike ? inst.strike.toFixed(0) : '-'}</td>
+                        <td style="padding: 8px; font-size: 10px;">${inst.expiry}</td>
+                        <td style="padding: 8px; text-align: right; background: ${toxicityBg}; color: ${toxicityColor}; font-weight: 700;">${inst.kyle_lambda.toFixed(6)}</td>
+                        <td style="padding: 8px; text-align: center; color: ${trendColor}; font-size: ${trendSize}; font-weight: 600;">${inst.trend}</td>
+                        <td style="padding: 8px; text-align: right; color: #aaa;">${inst.depth_toxicity.toFixed(4)}</td>
+                        <td style="padding: 8px; text-align: right;">₹${inst.price.toFixed(2)}</td>
+                        <td style="padding: 8px; text-align: right;" class="${inst.cvd_change > 0 ? 'positive' : 'negative'}">
+                            ${inst.cvd_change > 0 ? '+' : ''}${inst.cvd_change.toFixed(0)}
+                        </td>
                     </tr>
                 `;
             });
             
             html += '</tbody></table></div>';
-            document.getElementById('priceActionCard').innerHTML = html;
-        }
-
-        function updateVolumeProfile(profile) {
-            if (!profile || profile.length === 0) {
-                document.getElementById('volumeProfileCard').innerHTML = '<div>No volume profile data</div>';
-                return;
-            }
-
-            const maxVolume = Math.max(...profile.map(p => p.volume));
-            
-            let html = '<div style="max-height: 300px; overflow-y: auto;">';
-            profile.forEach(level => {
-                const percentage = (level.volume / maxVolume * 100).toFixed(1);
-                html += `
-                    <div style="margin-bottom: 10px;">
-                        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px;">
-                            <span>₹${formatNumber(level.price_level)}</span>
-                            <span>${formatLargeNumber(level.volume)} (${level.tick_count} ticks)</span>
-                        </div>
-                        <div style="background: #0d1428; height: 20px; border-radius: 4px; overflow: hidden;">
-                            <div style="background: linear-gradient(90deg, #2a5298, #1e3c72); height: 100%; width: ${percentage}%;"></div>
-                        </div>
-                    </div>
-                `;
-            });
-            html += '</div>';
-            document.getElementById('volumeProfileCard').innerHTML = html;
-        }
-
-        function updateOIEvolution(timeline) {
-            if (!timeline || timeline.length === 0) {
-                document.getElementById('oiEvolutionCard').innerHTML = '<div>No OI evolution data</div>';
-                return;
-            }
-
-            let html = '<div style="max-height: 300px; overflow-y: auto; font-size: 12px;">';
-            timeline.forEach(point => {
-                html += `
-                    <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a2f4a;">
-                        <span>${point.time}</span>
-                        <span>${formatLargeNumber(point.oi)}</span>
-                        <span>₹${formatNumber(point.price)}</span>
-                    </div>
-                `;
-            });
-            html += '</div>';
-            document.getElementById('oiEvolutionCard').innerHTML = html;
-        }
-
-        function updateKeyLevels(levels) {
-            if (!levels || levels.length === 0) {
-                document.getElementById('keyLevelsCard').innerHTML = '<div>No key levels identified</div>';
-                return;
-            }
-
-            let html = '<div style="font-size: 12px;">';
-            levels.forEach(level => {
-                html += `
-                    <div style="padding: 10px; margin-bottom: 8px; background: #0d1428; border-radius: 6px;">
-                        <div style="font-weight: 600; font-size: 16px; color: #ffa726;">₹${formatNumber(level.price)}</div>
-                        <div style="color: #aaa; margin-top: 3px;">${level.type}</div>
-                        <div style="color: #666; font-size: 11px;">Volume: ${formatLargeNumber(level.volume)}</div>
-                    </div>
-                `;
-            });
-            html += '</div>';
-            document.getElementById('keyLevelsCard').innerHTML = html;
-        }
-
-        function updateDayStats(stats) {
-            if (!stats) {
-                document.getElementById('dayStatsCard').innerHTML = '<div>No statistics available</div>';
-                return;
-            }
-
-            let html = `
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 12px;">
-                    <div>
-                        <div style="color: #aaa; margin-bottom: 5px;">Total Ticks</div>
-                        <div style="font-size: 18px; font-weight: 600;">${formatLargeNumber(stats.total_ticks)}</div>
-                    </div>
-                    <div>
-                        <div style="color: #aaa; margin-bottom: 5px;">Peak Volume</div>
-                        <div style="font-size: 18px; font-weight: 600;">${formatLargeNumber(stats.peak_volume)}</div>
-                    </div>
-                    <div>
-                        <div style="color: #aaa; margin-bottom: 5px;">Peak OI</div>
-                        <div style="font-size: 18px; font-weight: 600;">${formatLargeNumber(stats.peak_oi)}</div>
-                    </div>
-                    <div>
-                        <div style="color: #aaa; margin-bottom: 5px;">Min OI</div>
-                        <div style="font-size: 18px; font-weight: 600;">${formatLargeNumber(stats.min_oi)}</div>
-                    </div>
-                    <div style="grid-column: span 2;">
-                        <div style="color: #aaa; margin-bottom: 5px;">Price Volatility (StdDev)</div>
-                        <div style="font-size: 18px; font-weight: 600;">₹${formatNumber(stats.price_volatility)}</div>
-                    </div>
+            html += `
+                <div style="margin-top: 10px; padding: 8px; background: rgba(66, 133, 244, 0.1); border-radius: 6px; font-size: 11px; color: #aaa;">
+                    <strong>💡 How to use:</strong><br>
+                    • Focus on instruments with Kyle λ > 0.0005 (HIGH/EXTREME toxicity)<br>
+                    • ↑ Trend = Increasing toxicity (informed flow entering)<br>
+                    • Combine with CVD Δ direction for entry signals<br>
+                    • ATM strikes typically show higher toxicity during directional moves
                 </div>
             `;
-            document.getElementById('dayStatsCard').innerHTML = html;
+            
+            document.getElementById('rankedInstrumentsCard').innerHTML = html;
+        }
+
+        function updateAvgToxicity(data) {
+            const overall = data.overall;
+            const futures = data.futures;
+            const calls = data.calls;
+            const puts = data.puts;
+            
+            // Determine toxicity level based on kyle_lambda
+            const getToxicityLevel = (kyle_lambda) => {
+                if (kyle_lambda > 0.001) return { level: 'EXTREME', color: '#f44336', emoji: '🔴' };
+                if (kyle_lambda > 0.0005) return { level: 'HIGH', color: '#ff9800', emoji: '🟠' };
+                if (kyle_lambda > 0.0001) return { level: 'MODERATE', color: '#ffc107', emoji: '🟡' };
+                return { level: 'LOW', color: '#4caf50', emoji: '🟢' };
+            };
+            
+            const overallLevel = getToxicityLevel(overall.kyle_lambda);
+            
+            const html = `
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <div style="font-size: 48px; margin-bottom: 10px;">${overallLevel.emoji}</div>
+                    <div style="font-size: 24px; font-weight: 700; color: ${overallLevel.color}; margin-bottom: 5px;">${overallLevel.level} TOXICITY</div>
+                    <div style="font-size: 14px; color: #aaa;">Kyle's Lambda: ${overall.kyle_lambda.toFixed(6)}</div>
+                    <div style="font-size: 12px; color: #666; margin-top: 5px;">${overall.count} ticks analyzed</div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 20px;">
+                    <!-- Futures -->
+                    <div style="background: rgba(255,255,255,0.03); padding: 15px; border-radius: 8px;">
+                        <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">FUTURES (${futures.count} ticks)</div>
+                        <div class="metric-row">
+                            <span class="metric-label">Kyle Lambda</span>
+                            <span class="metric-value">${futures.kyle_lambda.toFixed(6)}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Depth Toxicity</span>
+                            <span class="metric-value">${futures.depth_toxicity.toFixed(4)}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Flow Intensity</span>
+                            <span class="metric-value">${futures.flow_intensity.toFixed(6)}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Consumption Rate</span>
+                            <span class="metric-value">${futures.consumption_rate.toFixed(4)}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Calls -->
+                    <div style="background: rgba(76, 175, 80, 0.05); padding: 15px; border-radius: 8px;">
+                        <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">CALLS (${calls.count} ticks)</div>
+                        <div class="metric-row">
+                            <span class="metric-label">Kyle Lambda</span>
+                            <span class="metric-value">${calls.kyle_lambda.toFixed(6)}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Depth Toxicity</span>
+                            <span class="metric-value">${calls.depth_toxicity.toFixed(4)}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Flow Intensity</span>
+                            <span class="metric-value">${calls.flow_intensity.toFixed(6)}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Consumption Rate</span>
+                            <span class="metric-value">${calls.consumption_rate.toFixed(4)}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Puts -->
+                    <div style="background: rgba(244, 67, 54, 0.05); padding: 15px; border-radius: 8px;">
+                        <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">PUTS (${puts.count} ticks)</div>
+                        <div class="metric-row">
+                            <span class="metric-label">Kyle Lambda</span>
+                            <span class="metric-value">${puts.kyle_lambda.toFixed(6)}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Depth Toxicity</span>
+                            <span class="metric-value">${puts.depth_toxicity.toFixed(4)}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Flow Intensity</span>
+                            <span class="metric-value">${puts.flow_intensity.toFixed(6)}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Consumption Rate</span>
+                            <span class="metric-value">${puts.consumption_rate.toFixed(4)}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px; padding: 10px; background: rgba(66, 133, 244, 0.1); border-radius: 6px; font-size: 11px; color: #aaa;">
+                    <strong>💡 Interpretation:</strong><br>
+                    • <strong>Kyle Lambda</strong>: Higher = more toxic flow (informed traders)<br>
+                    • <strong>Depth Toxicity</strong>: Lower = more aggressive depth consumption<br>
+                    • <strong>Flow Intensity</strong>: Price impact per volume unit<br>
+                    • <strong>Consumption Rate</strong>: Available depth per volume unit
+                </div>
+            `;
+            document.getElementById('avgToxicityCard').innerHTML = html;
+        }
+
+        function updateToxicityTrend(data) {
+            const isIncreasing = data.direction === 'INCREASING';
+            const isDecreasing = data.direction === 'DECREASING';
+            const trendColor = isIncreasing ? '#f44336' : isDecreasing ? '#4caf50' : '#ffa726';
+            const trendEmoji = isIncreasing ? '📈' : isDecreasing ? '📉' : '➡️';
+            
+            const html = `
+                <div style="text-align: center; margin-bottom: 15px;">
+                    <div style="font-size: 36px; margin-bottom: 10px;">${trendEmoji}</div>
+                    <div style="font-size: 20px; font-weight: 700; color: ${trendColor}; margin-bottom: 10px;">${data.direction}</div>
+                </div>
+                
+                <div class="metric-row">
+                    <span class="metric-label">Recent Avg (last 100)</span>
+                    <span class="metric-value">${data.recent_avg.toFixed(6)}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Previous Avg</span>
+                    <span class="metric-value">${data.previous_avg.toFixed(6)}</span>
+                </div>
+                <div class="metric-row" style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px; margin-top: 8px;">
+                    <span class="metric-label" style="font-weight: 600;">Change</span>
+                    <span class="metric-value ${data.change > 0 ? 'negative' : 'positive'}" style="font-weight: 600;">
+                        ${data.change > 0 ? '+' : ''}${data.change.toFixed(6)}
+                    </span>
+                </div>
+                
+                <div style="margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 6px; font-size: 11px; color: #aaa;">
+                    ${isIncreasing ? '⚠️ <strong>INCREASING</strong> toxicity suggests informed traders are active. Market makers may widen spreads.' : 
+                      isDecreasing ? '✅ <strong>DECREASING</strong> toxicity indicates calmer orderflow. Better conditions for market making.' :
+                      '➡️ <strong>STABLE</strong> toxicity. No significant change in flow character.'}
+                </div>
+            `;
+            document.getElementById('toxicityTrendCard').innerHTML = html;
+        }
+
+        function updateHighToxicityEvents(events) {
+            if (!events || events.length === 0) {
+                document.getElementById('highToxicityCard').innerHTML = '<div>No high toxicity events detected</div>';
+                return;
+            }
+
+            let html = '<div style="max-height: 400px; overflow-y: auto;">';
+            html += '<table style="width: 100%; font-size: 11px; border-collapse: collapse;">';
+            html += '<thead style="position: sticky; top: 0; background: #1a1f3a; z-index: 1;"><tr style="border-bottom: 2px solid #2a3150;">';
+            html += '<th style="padding: 8px; text-align: left;">Time</th>';
+            html += '<th style="padding: 8px; text-align: left;">Type</th>';
+            html += '<th style="padding: 8px; text-align: right;">Kyle Lambda</th>';
+            html += '<th style="padding: 8px; text-align: right;">Depth Toxicity</th>';
+            html += '<th style="padding: 8px; text-align: right;">Flow Intensity</th>';
+            html += '<th style="padding: 8px; text-align: right;">Price</th>';
+            html += '<th style="padding: 8px; text-align: right;">CVD Impact</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+            
+            events.forEach((evt, idx) => {
+                const bgColor = idx % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
+                const typeColor = evt.type === 'FUTURES' ? '#667eea' : evt.type === 'CALLS' ? '#4caf50' : '#f44336';
+                const toxicityColor = evt.kyle_lambda > 0.001 ? '#f44336' : evt.kyle_lambda > 0.0005 ? '#ff9800' : '#ffc107';
+                
+                const time = new Date(evt.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                
+                html += `
+                    <tr style="background: ${bgColor}; border-bottom: 1px solid #2a2f4a;">
+                        <td style="padding: 8px;">${time}</td>
+                        <td style="padding: 8px;"><span style="color: ${typeColor}; font-weight: 600;">${evt.type}</span></td>
+                        <td style="padding: 8px; text-align: right; color: ${toxicityColor}; font-weight: 600;">${evt.kyle_lambda.toFixed(6)}</td>
+                        <td style="padding: 8px; text-align: right;">${evt.depth_toxicity.toFixed(4)}</td>
+                        <td style="padding: 8px; text-align: right;">${evt.flow_intensity.toFixed(6)}</td>
+                        <td style="padding: 8px; text-align: right;">₹${evt.price.toFixed(2)}</td>
+                        <td style="padding: 8px; text-align: right;" class="${evt.cvd_change > 0 ? 'positive' : 'negative'}">
+                            ${evt.cvd_change > 0 ? '+' : ''}${evt.cvd_change.toFixed(0)}
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table></div>';
+            html += `
+                <div style="margin-top: 10px; padding: 8px; background: rgba(244, 67, 54, 0.1); border-radius: 6px; font-size: 11px; color: #f44336;">
+                    ⚠️ These events represent the top 10% most toxic flow. Watch for clustering of events as it may precede significant price moves.
+                </div>
+            `;
+            
+            document.getElementById('highToxicityCard').innerHTML = html;
         }
 
         // Initialize dashboard
         fetchDashboardData();
-        fetchHistoricalData();
-        fetchHistoricalData();
+        fetchToxicityData();
         
         // Update every 2 seconds
         updateInterval = setInterval(fetchDashboardData, 2000);
         
-        // Update historical data every 30 seconds
-        setInterval(fetchHistoricalData, 30000);
+        // Update toxicity data every 10 seconds
+        setInterval(fetchToxicityData, 10000);
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {

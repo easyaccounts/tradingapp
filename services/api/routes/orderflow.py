@@ -362,106 +362,249 @@ async def get_orderflow_analysis():
         await conn.close()
 
 
-@router.get("/orderflow/history")
-async def get_historical_analysis(
-    interval: TimeInterval = Query(TimeInterval.ALL_DAY, description="Time interval for analysis")
+@router.get("/orderflow/toxicity")
+async def get_toxicity_metrics(
+    limit: int = Query(500, description="Number of recent ticks to analyze", ge=100, le=2000)
 ):
     """
-    Get historical aggregated orderflow analysis with time intervals
+    Get orderflow toxicity metrics for the last N ticks across NIFTY instruments
+    
+    Toxicity metrics help identify high-probability price moves by detecting:
+    - Informed trading (toxic flow)
+    - Market maker stress
+    - Liquidity consumption patterns
     
     Args:
-        interval: Time window (15m, 30m, 1h, all)
+        limit: Number of recent ticks to analyze (default 500)
     
     Returns:
-    - Same structure as /orderflow but for specified time window
-    - price_timeline: 5-min buckets with price/volume/oi
+    - avg_toxicity: Average toxicity metrics by instrument type
+    - high_toxicity_events: Ticks with extreme toxicity (top 10%)
+    - toxicity_trend: Recent trend direction
     """
     
     conn = await get_db_connection()
     redis_client = get_redis_client()
     
     try:
-        # Get NIFTY instrument tokens
+        # Get NIFTY instrument tokens (2 nearest expiries)
         futures_tokens, calls_tokens, puts_tokens = get_nifty_instruments_by_expiry(redis_client)
-        redis_client.close()
         
         if not futures_tokens:
+            redis_client.close()
             raise HTTPException(status_code=404, detail="No NIFTY futures found")
         
-        # Determine time window
-        now = datetime.utcnow()
-        if interval == TimeInterval.FIFTEEN_MIN:
-            start_time = now - timedelta(minutes=15)
-        elif interval == TimeInterval.THIRTY_MIN:
-            start_time = now - timedelta(minutes=30)
-        elif interval == TimeInterval.ONE_HOUR:
-            start_time = now - timedelta(hours=1)
-        else:  # ALL_DAY
-            start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Combine all tokens
+        all_tokens = futures_tokens + calls_tokens + puts_tokens
         
-        # Calculate metrics for time window
-        futures_cvd = await calculate_cvd(conn, futures_tokens, start_time)
-        calls_cvd = await calculate_cvd(conn, calls_tokens, start_time)
-        puts_cvd = await calculate_cvd(conn, puts_tokens, start_time)
-        
-        futures_volume, futures_oi_change = await calculate_volume_and_oi(conn, futures_tokens, start_time)
-        calls_volume, calls_oi_change = await calculate_volume_and_oi(conn, calls_tokens, start_time)
-        puts_volume, puts_oi_change = await calculate_volume_and_oi(conn, puts_tokens, start_time)
-        
-        # Get 5-minute timeline data for futures
-        timeline = await conn.fetch("""
+        # Get last N ticks with toxicity metrics
+        toxicity_data = await conn.fetch("""
             SELECT 
-                time_bucket('5 minutes', time) as bucket,
-                AVG(last_price) as avg_price,
-                SUM(CASE 
-                    WHEN latest.volume_traded > earliest.volume_traded 
-                    THEN latest.volume_traded - earliest.volume_traded 
-                    ELSE 0 
-                END) as volume,
-                AVG(oi) as avg_oi
+                instrument_token,
+                time,
+                consumption_rate,
+                flow_intensity,
+                depth_toxicity_tick,
+                kyle_lambda_tick,
+                last_price,
+                volume_delta,
+                cvd_change
             FROM ticks
-            WHERE instrument_token = ANY($1) AND time >= $2
-            GROUP BY bucket
-            ORDER BY bucket ASC
-        """, futures_tokens, start_time)
+            WHERE instrument_token = ANY($1)
+                AND consumption_rate IS NOT NULL
+                AND depth_toxicity_tick IS NOT NULL
+                AND kyle_lambda_tick IS NOT NULL
+            ORDER BY time DESC
+            LIMIT $2
+        """, all_tokens, limit)
         
-        price_timeline = []
-        for row in timeline:
-            price_timeline.append({
-                "time": row['bucket'].strftime('%H:%M'),
-                "price": round(float(row['avg_price'] or 0), 2),
-                "volume": round(float(row['volume'] or 0), 2),
-                "oi": round(float(row['avg_oi'] or 0), 2)
+        if not toxicity_data:
+            raise HTTPException(status_code=404, detail="No toxicity data available")
+        
+        # Categorize by instrument type
+        futures_metrics = []
+        calls_metrics = []
+        puts_metrics = []
+        
+        for row in toxicity_data:
+            token = row['instrument_token']
+            metrics = {
+                'token': token,
+                'time': row['time'].isoformat(),
+                'consumption_rate': float(row['consumption_rate'] or 0),
+                'flow_intensity': float(row['flow_intensity'] or 0),
+                'depth_toxicity': float(row['depth_toxicity_tick'] or 0),
+                'kyle_lambda': float(row['kyle_lambda_tick'] or 0),
+                'price': float(row['last_price'] or 0),
+                'volume_delta': float(row['volume_delta'] or 0),
+                'cvd_change': float(row['cvd_change'] or 0)
+            }
+            
+            if token in futures_tokens:
+                futures_metrics.append(metrics)
+            elif token in calls_tokens:
+                calls_metrics.append(metrics)
+            elif token in puts_tokens:
+                puts_metrics.append(metrics)
+        
+        # Calculate averages
+        def calc_avg(metrics_list):
+            if not metrics_list:
+                return {
+                    'consumption_rate': 0,
+                    'flow_intensity': 0,
+                    'depth_toxicity': 0,
+                    'kyle_lambda': 0,
+                    'count': 0
+                }
+            return {
+                'consumption_rate': round(sum(m['consumption_rate'] for m in metrics_list) / len(metrics_list), 4),
+                'flow_intensity': round(sum(m['flow_intensity'] for m in metrics_list) / len(metrics_list), 6),
+                'depth_toxicity': round(sum(m['depth_toxicity'] for m in metrics_list) / len(metrics_list), 4),
+                'kyle_lambda': round(sum(m['kyle_lambda'] for m in metrics_list) / len(metrics_list), 6),
+                'count': len(metrics_list)
+            }
+        
+        # Identify high toxicity events (top 10% by kyle_lambda)
+        all_metrics = futures_metrics + calls_metrics + puts_metrics
+        all_metrics_sorted = sorted(all_metrics, key=lambda x: x['kyle_lambda'], reverse=True)
+        high_toxicity_threshold = int(len(all_metrics_sorted) * 0.1)
+        high_toxicity_events = all_metrics_sorted[:high_toxicity_threshold][:20]  # Top 20 for display
+        
+        # Calculate recent trend (last 100 ticks vs previous)
+        recent_100 = all_metrics_sorted[:100] if len(all_metrics_sorted) >= 100 else all_metrics_sorted
+        prev_100 = all_metrics_sorted[100:200] if len(all_metrics_sorted) >= 200 else []
+        
+        recent_avg_toxicity = sum(m['kyle_lambda'] for m in recent_100) / len(recent_100) if recent_100 else 0
+        prev_avg_toxicity = sum(m['kyle_lambda'] for m in prev_100) / len(prev_100) if prev_100 else recent_avg_toxicity
+        
+        toxicity_change = recent_avg_toxicity - prev_avg_toxicity
+        toxicity_trend = "INCREASING" if toxicity_change > 0.0001 else "DECREASING" if toxicity_change < -0.0001 else "STABLE"
+        
+        # Calculate per-instrument rankings
+        # Get latest toxicity per instrument with trend calculation
+        instrument_rankings = await conn.fetch("""
+            WITH latest_ticks AS (
+                SELECT DISTINCT ON (instrument_token)
+                    instrument_token,
+                    time,
+                    kyle_lambda_tick,
+                    depth_toxicity_tick,
+                    flow_intensity,
+                    consumption_rate,
+                    last_price,
+                    volume_delta,
+                    cvd_change
+                FROM ticks
+                WHERE instrument_token = ANY($1)
+                    AND kyle_lambda_tick IS NOT NULL
+                    AND time >= NOW() - INTERVAL '5 minutes'
+                ORDER BY instrument_token, time DESC
+            ),
+            previous_ticks AS (
+                SELECT DISTINCT ON (instrument_token)
+                    instrument_token,
+                    kyle_lambda_tick as prev_kyle_lambda
+                FROM ticks
+                WHERE instrument_token = ANY($1)
+                    AND kyle_lambda_tick IS NOT NULL
+                    AND time >= NOW() - INTERVAL '10 minutes'
+                    AND time < NOW() - INTERVAL '5 minutes'
+                ORDER BY instrument_token, time DESC
+            )
+            SELECT 
+                l.instrument_token,
+                l.kyle_lambda_tick,
+                l.depth_toxicity_tick,
+                l.flow_intensity,
+                l.consumption_rate,
+                l.last_price,
+                l.volume_delta,
+                l.cvd_change,
+                l.time,
+                COALESCE(p.prev_kyle_lambda, l.kyle_lambda_tick) as prev_kyle_lambda
+            FROM latest_ticks l
+            LEFT JOIN previous_ticks p ON l.instrument_token = p.instrument_token
+            ORDER BY l.kyle_lambda_tick DESC
+            LIMIT 20
+        """, all_tokens)
+        
+        # Enrich with instrument details from Redis
+        ranked_instruments = []
+        for row in instrument_rankings:
+            token = row['instrument_token']
+            instrument_key = f"instrument:{token}"
+            instrument_data: dict = redis_client.hgetall(instrument_key)  # type: ignore
+            
+            if not instrument_data:
+                continue
+            
+            current_kyle = float(row['kyle_lambda_tick'] or 0)
+            prev_kyle = float(row['prev_kyle_lambda'] or current_kyle)
+            trend_change = current_kyle - prev_kyle
+            trend_direction = "↑" if trend_change > 0.00001 else "↓" if trend_change < -0.00001 else "→"
+            
+            # Determine instrument type
+            inst_type = "FUTURES" if token in futures_tokens else "CALLS" if token in calls_tokens else "PUTS"
+            
+            ranked_instruments.append({
+                "rank": len(ranked_instruments) + 1,
+                "trading_symbol": instrument_data.get('tradingsymbol', 'N/A'),
+                "instrument_type": inst_type,
+                "strike": float(instrument_data.get('strike', 0)) if instrument_data.get('strike') else None,
+                "expiry": instrument_data.get('expiry', 'N/A').split()[0] if instrument_data.get('expiry') else 'N/A',
+                "kyle_lambda": round(current_kyle, 6),
+                "depth_toxicity": round(float(row['depth_toxicity_tick'] or 0), 4),
+                "flow_intensity": round(float(row['flow_intensity'] or 0), 6),
+                "consumption_rate": round(float(row['consumption_rate'] or 0), 4),
+                "price": round(float(row['last_price'] or 0), 2),
+                "trend": trend_direction,
+                "trend_change": round(trend_change, 6),
+                "cvd_change": round(float(row['cvd_change'] or 0), 2),
+                "last_updated": row['time'].isoformat()
             })
         
+        # Close Redis connection
+        redis_client.close()
+        
         response = {
-            "interval": interval.value,
-            "start_time": start_time.isoformat(),
-            "cvd": {
-                "futures": round(float(futures_cvd), 2),
-                "calls": round(float(calls_cvd), 2),
-                "puts": round(float(puts_cvd), 2),
-                "net_options": round(float(calls_cvd - puts_cvd), 2)
+            "avg_toxicity": {
+                "futures": calc_avg(futures_metrics),
+                "calls": calc_avg(calls_metrics),
+                "puts": calc_avg(puts_metrics),
+                "overall": calc_avg(all_metrics)
             },
-            "volume": {
-                "futures": round(float(futures_volume), 2),
-                "calls": round(float(calls_volume), 2),
-                "puts": round(float(puts_volume), 2),
-                "total": round(float(futures_volume + calls_volume + puts_volume), 2)
+            "high_toxicity_events": [
+                {
+                    "time": evt['time'],
+                    "kyle_lambda": round(evt['kyle_lambda'], 6),
+                    "depth_toxicity": round(evt['depth_toxicity'], 4),
+                    "flow_intensity": round(evt['flow_intensity'], 6),
+                    "price": round(evt['price'], 2),
+                    "cvd_change": round(evt['cvd_change'], 2),
+                    "type": "FUTURES" if evt['token'] in futures_tokens else "CALLS" if evt['token'] in calls_tokens else "PUTS"
+                } for evt in high_toxicity_events
+            ],
+            "toxicity_trend": {
+                "direction": toxicity_trend,
+                "recent_avg": round(recent_avg_toxicity, 6),
+                "previous_avg": round(prev_avg_toxicity, 6),
+                "change": round(toxicity_change, 6)
             },
-            "oi_changes": {
-                "futures": round(float(futures_oi_change), 2),
-                "calls": round(float(calls_oi_change), 2),
-                "puts": round(float(puts_oi_change), 2),
-                "total": round(float(futures_oi_change + calls_oi_change + puts_oi_change), 2)
-            },
-            "price_timeline": price_timeline
+            "ranked_instruments": ranked_instruments,
+            "metadata": {
+                "ticks_analyzed": len(all_metrics),
+                "limit_requested": limit,
+                "futures_ticks": len(futures_metrics),
+                "calls_ticks": len(calls_metrics),
+                "puts_ticks": len(puts_metrics)
+            }
         }
         
         return response
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Historical analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Toxicity analysis failed: {str(e)}")
     
     finally:
         await conn.close()
