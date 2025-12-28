@@ -12,24 +12,51 @@ from kiteconnect import KiteConnect
 import redis
 
 
+def read_token_from_file(file_path="/app/data/access_token.txt"):
+    """Read access token from persistent file"""
+    try:
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                token = f.read().strip()
+            return token if token else None
+        return None
+    except Exception as e:
+        print(f"   Failed to read token file: {e}")
+        return None
+
+
 def get_access_token(redis_url):
-    """Get Kite access token from Redis or environment"""
-    # Try Redis first
+    """
+    Retrieve Kite access token from file (primary) or Redis (fallback) or environment
+    Same logic as ingestion service
+    """
+    # Try reading from file first (primary source - used in production)
+    token = read_token_from_file()
+    if token:
+        return token
+    
+    # Fallback to Redis
     try:
         r = redis.from_url(redis_url, decode_responses=True)
         token = r.get('kite_access_token')
         r.close()
         if token:
             return token
-    except:
-        pass
+    except Exception as e:
+        print(f"   Redis connection failed: {e}")
     
-    # Try environment variable as fallback
+    # Final fallback to environment variable
     token = os.getenv('KITE_ACCESS_TOKEN')
     if token:
         return token
     
-    raise Exception("Kite access token not found in Redis or KITE_ACCESS_TOKEN environment variable. Please authenticate first.")
+    raise Exception(
+        "Kite access token not found in:\n"
+        "  1. File: /app/data/access_token.txt\n"
+        "  2. Redis: kite_access_token\n"
+        "  3. Environment: KITE_ACCESS_TOKEN\n"
+        "Please authenticate first or set KITE_ACCESS_TOKEN in .env file"
+    )
 
 
 def get_api_key(redis_url):
