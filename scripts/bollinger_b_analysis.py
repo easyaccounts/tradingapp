@@ -107,13 +107,13 @@ def identify_signals(df, percent_b):
     """
     Identify ALERT candles when %B crosses above 105 or below -5
     These represent significant buying/selling activity
-    Volume must be above 20-day average to qualify as alert
+    Volume must be in top 25% (75th percentile) of last 50 days
     """
     df['percent_b'] = percent_b
     
     alerts = []
     
-    for i in range(20, len(df)):  # Start from index 20 to have volume average
+    for i in range(50, len(df)):  # Start from index 50 to have 50-day volume history
         current_b = df.at[i, 'percent_b']
         prev_b = df.at[i-1, 'percent_b']
         current_open = df.at[i, 'open']
@@ -124,11 +124,12 @@ def identify_signals(df, percent_b):
         if pd.isna(current_b) or pd.isna(prev_b):
             continue
         
-        # Calculate 20-day average volume
+        # Calculate 20-day average volume (for tracking)
         avg_volume = df['volume'].iloc[i-20:i].mean()
         
-        # Volume filter: Alert volume must be above average
-        if current_volume <= avg_volume:
+        # Volume percentile filter: Alert volume must be in top 25% of last 50 days
+        volume_75th_percentile = df['volume'].iloc[i-50:i].quantile(0.75)
+        if current_volume < volume_75th_percentile:
             continue
         
         # Bullish alert: %B crosses above 105 AND candle closes green (close > open)
