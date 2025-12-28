@@ -62,9 +62,9 @@ def get_db_connection():
     return psycopg2.connect(
         host=os.getenv('DB_HOST', 'localhost'),
         port=os.getenv('DB_PORT', '5432'),
-        database=os.getenv('DB_NAME', 'tradingapp'),
-        user=os.getenv('DB_USER', 'tradingapp'),
-        password=os.getenv('DB_PASSWORD', 'tradingapp123')
+        database=os.getenv('DB_NAME', 'tradingdb'),
+        user=os.getenv('DB_USER', 'tradinguser'),
+        password=os.getenv('DB_PASSWORD', '5Ke1Ne9TLlI1TNv1F6JEfefNvDvy0jZv66Sh0vqQJKQ=')
     )
 
 
