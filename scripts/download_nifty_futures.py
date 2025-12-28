@@ -13,12 +13,23 @@ import redis
 
 
 def get_access_token(redis_url):
-    """Get Kite access token from Redis"""
-    r = redis.from_url(redis_url, decode_responses=True)
-    token = r.get('kite_access_token')
-    if not token:
-        raise Exception("Kite access token not found in Redis. Please authenticate first.")
-    return token
+    """Get Kite access token from Redis or environment"""
+    # Try Redis first
+    try:
+        r = redis.from_url(redis_url, decode_responses=True)
+        token = r.get('kite_access_token')
+        r.close()
+        if token:
+            return token
+    except:
+        pass
+    
+    # Try environment variable as fallback
+    token = os.getenv('KITE_ACCESS_TOKEN')
+    if token:
+        return token
+    
+    raise Exception("Kite access token not found in Redis or KITE_ACCESS_TOKEN environment variable. Please authenticate first.")
 
 
 def get_api_key(redis_url):
