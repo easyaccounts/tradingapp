@@ -131,29 +131,8 @@ def identify_signals(df, percent_b):
         if current_volume <= avg_volume:
             continue
         
-        # Get candle dimensions for structure filter
-        current_high = df.at[i, 'high']
-        current_low = df.at[i, 'low']
-        candle_range = current_high - current_low
-        
-        # Skip candles with no range (rare but possible)
-        if candle_range == 0:
-            continue
-        
         # Bullish alert: %B crosses above 105 AND candle closes green (close > open)
         if prev_b <= 105 and current_b > 105 and current_close > current_open:
-            # Candle structure filter for bullish (relaxed):
-            # 1. Body should be at least 35% of total range (directional but not overly strict)
-            body_size = current_close - current_open
-            body_ratio = body_size / candle_range
-            
-            # 2. Close should be in top 55% of range (allows normal wicks)
-            close_position = (current_close - current_low) / candle_range
-            
-            # Skip only very weak candles (dojis, hammers with huge upper wicks)
-            if body_ratio < 0.35 or close_position < 0.55:
-                continue
-            
             alerts.append({
                 'type': 'BULLISH_ALERT',
                 'alert_date': df.at[i, 'date'],
@@ -169,18 +148,6 @@ def identify_signals(df, percent_b):
         
         # Bearish alert: %B crosses below -5 AND candle closes red (close < open)
         elif prev_b >= -5 and current_b < -5 and current_close < current_open:
-            # Candle structure filter for bearish (relaxed):
-            # 1. Body should be at least 35% of total range (directional but not overly strict)
-            body_size = current_open - current_close
-            body_ratio = body_size / candle_range
-            
-            # 2. Close should be in bottom 45% of range (allows normal wicks)
-            close_position = (current_close - current_low) / candle_range
-            
-            # Skip only very weak candles (dojis, inverted hammers with huge lower wicks)
-            if body_ratio < 0.35 or close_position > 0.45:
-                continue
-            
             alerts.append({
                 'type': 'BEARISH_ALERT',
                 'alert_date': df.at[i, 'date'],
@@ -223,9 +190,25 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
         confirmation_low = None
         confirmation_high = None
         
+        # Track metrics for analysis
+        days_to_confirm = None
+        alert_volume_ratio = alert.get('volume_ratio', 1.0)
+        confirm_volume_ratio = None
+        breakout_strength = None
+        pullback_depth = None
+        min_price_after_alert = alert_close  # Track for pullback calculation
+        
         if alert['type'] == 'BULLISH_ALERT':
             # Wait for close > trigger high within confirmation_window days
             max_search = min(confirmation_window + 1, len(df) - alert_idx)
+            
+            # Track lowest price for pullback analysis
+            for j in range(1, max_search):
+                check_idx = alert_idx + j
+                check_low_temp = df.at[check_idx, 'low']
+                min_price_after_alert = min(min_price_after_alert, check_low_temp)
+            
+            # Reset for confirmation search
             for j in range(1, max_search):
                 check_idx = alert_idx + j
                 check_close = df.at[check_idx, 'close']
@@ -242,12 +225,21 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
                         # Skip if confirmation volume is not above average
                         if check_volume <= avg_volume_confirm:
                             continue  # Weak confirmation, keep looking
+                        
+                        # Store metrics for analysis
+                        confirm_volume_ratio = check_volume / avg_volume_confirm
                     
                     entry_found = True
                     entry_idx = check_idx
                     entry_price = check_close  # Enter at confirmation close
                     stop_loss = check_low  # SL = confirmation candle low
                     confirmation_low = check_low
+                    
+                    # Calculate analysis metrics
+                    days_to_confirm = entry_idx - alert_idx
+                    breakout_strength = ((check_close - alert_high) / alert_high) * 100
+                    pullback_depth = ((alert_close - min_price_after_alert) / alert_close) * 100
+                    
                     break
             
             if not entry_found:
@@ -321,6 +313,15 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
         else:  # BEARISH_ALERT
             # Wait for close < trigger low within confirmation_window days
             max_search = min(confirmation_window + 1, len(df) - alert_idx)
+            
+            # Track highest price for pullback analysis
+            max_price_after_alert = alert_close
+            for j in range(1, max_search):
+                check_idx = alert_idx + j
+                check_high_temp = df.at[check_idx, 'high']
+                max_price_after_alert = max(max_price_after_alert, check_high_temp)
+            
+            # Reset for confirmation search
             for j in range(1, max_search):
                 check_idx = alert_idx + j
                 check_close = df.at[check_idx, 'close']
@@ -336,6 +337,23 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
                         
                         # Skip if confirmation volume is not above average
                         if check_volume <= avg_volume_confirm:
+                            continue  # Weak confirmation, keep looking
+                        
+                        # Store metrics for analysis
+                        confirm_volume_ratio = check_volume / avg_volume_confirm
+                    
+                    entry_found = True
+                    entry_idx = check_idx
+                    entry_price = check_close  # Enter at confirmation close
+                    stop_loss = check_high  # SL = confirmation candle high
+                    confirmation_high = check_high
+                    
+                    # Calculate analysis metrics
+                    days_to_confirm = entry_idx - alert_idx
+                    breakout_strength = ((alert_low - check_close) / alert_low) * 100
+                    pullback_depth = ((max_price_after_alert - alert_close) / alert_close) * 100
+                    
+                    break
                             continue  # Weak confirmation, keep looking
                     
                     entry_found = True
@@ -434,7 +452,14 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
             'slippage': slippage_pct,
             'pnl_net': net_pnl,
             'max_favorable': max_favorable,
-            'max_adverse': max_adverse
+            'max_adverse': max_adverse,
+            # New metrics for failure analysis
+            'days_to_confirm': days_to_confirm,
+            'alert_volume_ratio': alert_volume_ratio,
+            'confirm_volume_ratio': confirm_volume_ratio if confirm_volume_ratio else 1.0,
+            'breakout_strength': breakout_strength if breakout_strength else 0.0,
+            'pullback_depth': pullback_depth if pullback_depth else 0.0,
+            'win': net_pnl > 0
         })
     
     return results
