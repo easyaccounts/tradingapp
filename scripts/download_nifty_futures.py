@@ -11,6 +11,14 @@ from psycopg2.extras import execute_values
 from kiteconnect import KiteConnect
 import redis
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not available, will use system environment variables only
+    pass
+
 
 def read_token_from_file(file_path="/app/data/access_token.txt"):
     """Read access token from persistent file"""
