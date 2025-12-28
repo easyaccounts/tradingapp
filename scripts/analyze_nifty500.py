@@ -17,11 +17,11 @@ exec(open('scripts/bollinger_b_analysis.py').read())
 def get_db_connection():
     """Connect to PostgreSQL database"""
     return psycopg2.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        port=os.getenv('DB_PORT', '5432'),
-        database=os.getenv('DB_NAME', 'tradingdb'),
-        user=os.getenv('DB_USER', 'tradinguser'),
-        password=os.getenv('DB_PASSWORD', '5Ke1Ne9TLlI1TNv1F6JEfefNvDvy0jZv66Sh0vqQJKQ=')
+        host='localhost',
+        port='5432',
+        database='tradingdb',
+        user='tradinguser',
+        password='5Ke1Ne9TLlI1TNv1F6JEfefNvDvy0jZv66Sh0vqQJKQ='
     )
 
 
