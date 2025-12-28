@@ -193,9 +193,20 @@ def main():
         # Try Redis
         r = redis.from_url(redis_url, decode_responses=True)
         api_key = r.get('kite_api_key')
+        r.close()
     
     if not api_key:
-        print("✗ KITE_API_KEY not found")
+        # Try loading from .env file
+        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                for line in f:
+                    if line.startswith('KITE_API_KEY='):
+                        api_key = line.split('=', 1)[1].strip()
+                        break
+    
+    if not api_key:
+        print("✗ KITE_API_KEY not found in environment, Redis, or .env file")
         return
     
     kite = KiteConnect(api_key=api_key)
