@@ -18,7 +18,6 @@ from scripts.bollinger_b_analysis import (
     calculate_transaction_costs,
     triangular_ma,
     bollinger_percent_b,
-    calculate_adx,
     identify_signals,
     analyze_signal_performance
 )
@@ -95,11 +94,8 @@ def analyze_symbol(symbol):
         # Calculate Bollinger %B
         df['percent_b'], _, _, _ = bollinger_percent_b(df['volume'], 20, 2, ma_type='sma')
         
-        # Calculate ADX for trend strength filter
-        df['adx'], df['plus_di'], df['minus_di'] = calculate_adx(df, period=14)
-        
-        # Identify signals (with ADX >= 25 filter)
-        alerts = identify_signals(df, df['percent_b'], df['adx'], min_adx=25)
+        # Identify signals
+        alerts = identify_signals(df, df['percent_b'])
         
         if len(alerts) == 0:
             return {
