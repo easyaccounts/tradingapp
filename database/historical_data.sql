@@ -47,11 +47,13 @@ ON historical_data (trading_symbol, timeframe, time DESC);
 CREATE INDEX IF NOT EXISTS idx_historical_timeframe 
 ON historical_data (timeframe, time DESC);
 
--- Compression policy (standard TimescaleDB compression, not columnstore)
-SELECT add_compression_policy('historical_data', INTERVAL '30 days', if_not_exists => TRUE);
-
--- Retention policy (optional - keep data for 5 years)
--- SELECT add_retention_policy('historical_data', INTERVAL '5 years', if_not_exists => TRUE);
+-- Note: Compression requires TimescaleDB 2.0+ with columnstore enabled
+-- Uncomment if you want to enable compression:
+-- ALTER TABLE historical_data SET (
+--     timescaledb.compress,
+--     timescaledb.compress_segmentby = 'instrument_token,timeframe'
+-- );
+-- SELECT add_compression_policy('historical_data', INTERVAL '30 days');
 
 -- View for easy querying
 CREATE OR REPLACE VIEW latest_historical_data AS

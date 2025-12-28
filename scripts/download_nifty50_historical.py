@@ -13,9 +13,14 @@ from kiteconnect import KiteConnect
 import pandas as pd
 import time
 
-# Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from services.ingestion.kite_auth import get_access_token
+
+def get_access_token(redis_url):
+    """Get Kite access token from Redis"""
+    r = redis.from_url(redis_url, decode_responses=True)
+    token = r.get('kite_access_token')
+    if not token:
+        raise Exception("Kite access token not found in Redis. Please authenticate first.")
+    return token
 
 # Nifty 50 trading symbols
 NIFTY50_SYMBOLS = [
