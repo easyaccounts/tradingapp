@@ -85,8 +85,10 @@ def analyze_symbol(symbol):
                 'symbol': symbol,
                 'total_trades': 0,
                 'win_rate': 0,
-                'total_pnl': 0,
-                'avg_pnl': 0,
+                'total_pnl_gross': 0,
+                'total_pnl_net': 0,
+                'avg_pnl_gross': 0,
+                'avg_pnl_net': 0,
                 'candles': len(df)
             }
         
@@ -98,8 +100,10 @@ def analyze_symbol(symbol):
                 'symbol': symbol,
                 'total_trades': 0,
                 'win_rate': 0,
-                'total_pnl': 0,
-                'avg_pnl': 0,
+                'total_pnl_gross': 0,
+                'total_pnl_net': 0,
+                'avg_pnl_gross': 0,
+                'avg_pnl_net': 0,
                 'candles': len(df)
             }
         
@@ -151,7 +155,7 @@ def main():
         if result['total_trades'] == 0:
             print(f"⚪ No trades")
         else:
-            status = "✅" if result['total_pnl'] > 0 else "❌"
+            status = "✅" if result['total_pnl_net'] > 0 else "❌"
             print(f"{status} {result['total_trades']:3d} trades | {result['win_rate']:5.1f}% win | Gross: {result['total_pnl_gross']:+7.2f}% | Net: {result['total_pnl_net']:+7.2f}%")
         
         results.append(result)
