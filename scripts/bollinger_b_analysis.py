@@ -142,16 +142,16 @@ def identify_signals(df, percent_b):
         
         # Bullish alert: %B crosses above 105 AND candle closes green (close > open)
         if prev_b <= 105 and current_b > 105 and current_close > current_open:
-            # Candle structure filter for bullish:
-            # 1. Body should be at least 50% of total range (strong conviction)
+            # Candle structure filter for bullish (relaxed):
+            # 1. Body should be at least 35% of total range (directional but not overly strict)
             body_size = current_close - current_open
             body_ratio = body_size / candle_range
             
-            # 2. Close should be in top 70% of range (minimal upper wick)
+            # 2. Close should be in top 55% of range (allows normal wicks)
             close_position = (current_close - current_low) / candle_range
             
-            # Skip weak candles (small body or long upper wick)
-            if body_ratio < 0.50 or close_position < 0.70:
+            # Skip only very weak candles (dojis, hammers with huge upper wicks)
+            if body_ratio < 0.35 or close_position < 0.55:
                 continue
             
             alerts.append({
@@ -169,16 +169,16 @@ def identify_signals(df, percent_b):
         
         # Bearish alert: %B crosses below -5 AND candle closes red (close < open)
         elif prev_b >= -5 and current_b < -5 and current_close < current_open:
-            # Candle structure filter for bearish:
-            # 1. Body should be at least 50% of total range (strong conviction)
+            # Candle structure filter for bearish (relaxed):
+            # 1. Body should be at least 35% of total range (directional but not overly strict)
             body_size = current_open - current_close
             body_ratio = body_size / candle_range
             
-            # 2. Close should be in bottom 30% of range (minimal lower wick)
+            # 2. Close should be in bottom 45% of range (allows normal wicks)
             close_position = (current_close - current_low) / candle_range
             
-            # Skip weak candles (small body or long lower wick)
-            if body_ratio < 0.50 or close_position > 0.30:
+            # Skip only very weak candles (dojis, inverted hammers with huge lower wicks)
+            if body_ratio < 0.35 or close_position > 0.45:
                 continue
             
             alerts.append({
