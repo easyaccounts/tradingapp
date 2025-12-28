@@ -226,11 +226,6 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
                         if check_volume <= avg_volume_confirm:
                             continue  # Weak confirmation, keep looking
                         
-                        # Volume expansion filter: Confirmation volume must be > alert volume
-                        # This ensures building momentum, not fading
-                        if check_volume <= alert['alert_volume']:
-                            continue  # Volume declining, not building momentum
-                        
                         # Store metrics for analysis
                         confirm_volume_ratio = check_volume / avg_volume_confirm
                     
@@ -343,11 +338,6 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
                         # Skip if confirmation volume is not above average
                         if check_volume <= avg_volume_confirm:
                             continue  # Weak confirmation, keep looking
-                        
-                        # Volume expansion filter: Confirmation volume must be > alert volume
-                        # This ensures building momentum, not fading
-                        if check_volume <= alert['alert_volume']:
-                            continue  # Volume declining, not building momentum
                         
                         # Store metrics for analysis
                         confirm_volume_ratio = check_volume / avg_volume_confirm
