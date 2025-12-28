@@ -145,8 +145,8 @@ def main():
     print(f"Average Slippage per Trade: 0.050%")
     
     # Breakdown by signal type
-    bullish_signals = [r for r in results if r['signal_type'] == 'BULLISH_ALERT']
-    bearish_signals = [r for r in results if r['signal_type'] == 'BEARISH_ALERT']
+    bullish_signals = [r for r in results if r['type'] == 'BULLISH']
+    bearish_signals = [r for r in results if r['type'] == 'BEARISH']
     
     if bullish_signals:
         bull_win = sum(1 for r in bullish_signals if r['pnl_net'] > 0)
@@ -162,7 +162,7 @@ def main():
     print(f"\n📊 Latest 5 Trades:")
     for r in results[-5:]:
         win_loss = "WIN" if r['pnl_net'] > 0 else "LOSS"
-        signal_type = "🟢" if r['signal_type'] == 'BULLISH_ALERT' else "🔴"
+        signal_type = "🟢" if r['type'] == 'BULLISH' else "🔴"
         print(f"   {signal_type} {r['alert_date'].strftime('%Y-%m-%d')} → {r['exit_date'].strftime('%Y-%m-%d')} | "
               f"Entry: ₹{r['entry_price']:.2f} | Exit: ₹{r['exit_price']:.2f} | "
               f"Net P&L: {r['pnl_net']:+.2f}% | {win_loss} | {r['exit_reason']}")
