@@ -354,14 +354,6 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
                     pullback_depth = ((max_price_after_alert - alert_close) / alert_close) * 100
                     
                     break
-                            continue  # Weak confirmation, keep looking
-                    
-                    entry_found = True
-                    entry_idx = check_idx
-                    entry_price = check_close  # Enter at confirmation close
-                    stop_loss = check_high  # SL = confirmation candle high
-                    confirmation_high = check_high
-                    break
             
             if not entry_found:
                 continue  # No confirmation, skip trade
