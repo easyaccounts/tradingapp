@@ -200,6 +200,16 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
                 
                 # Confirmation: close above trigger high
                 if check_close > alert_high:
+                    # Volume filter: Confirmation candle must also have volume > average
+                    check_volume = df.at[check_idx, 'volume']
+                    # Ensure we have enough history for volume calculation
+                    if check_idx >= 20:
+                        avg_volume_confirm = df['volume'].iloc[check_idx-20:check_idx].mean()
+                        
+                        # Skip if confirmation volume is not above average
+                        if check_volume <= avg_volume_confirm:
+                            continue  # Weak confirmation, keep looking
+                    
                     entry_found = True
                     entry_idx = check_idx
                     entry_price = check_close  # Enter at confirmation close
@@ -285,6 +295,16 @@ def analyze_signal_performance(df, alerts, confirmation_window=10):
                 
                 # Confirmation: close below trigger low
                 if check_close < alert_low:
+                    # Volume filter: Confirmation candle must also have volume > average
+                    check_volume = df.at[check_idx, 'volume']
+                    # Ensure we have enough history for volume calculation
+                    if check_idx >= 20:
+                        avg_volume_confirm = df['volume'].iloc[check_idx-20:check_idx].mean()
+                        
+                        # Skip if confirmation volume is not above average
+                        if check_volume <= avg_volume_confirm:
+                            continue  # Weak confirmation, keep looking
+                    
                     entry_found = True
                     entry_idx = check_idx
                     entry_price = check_close  # Enter at confirmation close
