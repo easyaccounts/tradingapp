@@ -307,8 +307,8 @@ def analyze_order_qty_divergence(df):
     
     # Interpretation
     if 'Strong Retail Buy' in divergence_analysis.index and 'Strong Retail Sell' in divergence_analysis.index:
-        retail_buy = divergence_analysis.loc['Strong Retail Buy', 'return_20']
-        retail_sell = divergence_analysis.loc['Strong Retail Sell', 'return_20']
+        retail_buy = divergence_analysis.loc['Strong Retail Buy', 'return_2400']
+        retail_sell = divergence_analysis.loc['Strong Retail Sell', 'return_2400']
         
         print("Interpretation (20-tick horizon):")
         print(f"  Strong Retail Buy (many small bid orders): {retail_buy:+.4f}")
