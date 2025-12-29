@@ -326,29 +326,25 @@ def on_message(ws, message):
                 ask_depth = parse_depth_packet_200(message[3212:])
                 
                 if bid_depth and ask_depth:
-                    snapshot = analyze_depth_snapshot(bid_depth, ask_depth)
+                    # Use current timestamp in IST (converted to UTC for storage)
+                    timestamp_ist = datetime.now(ist)
+                    timestamp_utc = timestamp_ist.astimezone(pytz.UTC)
                     
-                    if snapshot:
-                        # Use current timestamp in IST (converted to UTC for storage)
-                        timestamp_ist = datetime.now(ist)
-                        timestamp_utc = timestamp_ist.astimezone(pytz.UTC)
-                        
-                        # Save aggregated snapshot (existing functionality)
-                        save_snapshot_to_db(snapshot)
-                        
-                        # Save individual 200 levels (new functionality)
-                        save_depth_levels_to_db(db_cursor, bid_depth, ask_depth, timestamp_utc, int(SECURITY_ID))
-                        
-                        snapshot_count += 1
-                        
-                        # Print progress every 100 snapshots
-                        if snapshot_count % 100 == 0:
-                            timestamp_str = datetime.now(ist).strftime('%H:%M:%S')
-                            print(f"[{timestamp_str}] Snapshots: {snapshot_count}, "
-                                  f"Bid: ₹{snapshot['best_bid']:,.2f}, "
-                                  f"Ask: ₹{snapshot['best_ask']:,.2f}, "
-                                  f"Spread: ₹{snapshot['spread']:.2f}, "
-                                  f"Imbalance: {snapshot['imbalance_ratio']:.2f}")
+                    # Save individual 200 levels to database
+                    save_depth_levels_to_db(db_cursor, bid_depth, ask_depth, timestamp_utc, int(SECURITY_ID))
+                    
+                    snapshot_count += 1
+                    
+                    # Print progress every 100 snapshots
+                    if snapshot_count % 100 == 0:
+                        timestamp_str = datetime.now(ist).strftime('%H:%M:%S')
+                        best_bid = bid_depth[0]['price']
+                        best_ask = ask_depth[0]['price']
+                        spread = best_ask - best_bid
+                        print(f"[{timestamp_str}] Snapshots: {snapshot_count}, "
+                              f"Bid: ₹{best_bid:,.2f}, "
+                              f"Ask: ₹{best_ask:,.2f}, "
+                              f"Spread: ₹{spread:.2f}")
             
             # Check for disconnect
             elif len(message) >= 3 and message[2] == RESPONSE_DISCONNECT:
@@ -382,7 +378,7 @@ def on_close(ws, close_status_code, close_msg):
     print("WebSocket Connection Closed")
     print(f"Total snapshots captured: {snapshot_count}")
     print(f"Session duration: {duration:.1f} seconds")
-    print(f"Data saved to database: depth_200_snapshots (aggregates) + depth_levels_200 (individual levels)")
+    print(f"Data saved to database: depth_levels_200 (200 bid + 200 ask levels per snapshot)")
     print("=" * 80)
     
     # Close database connection
