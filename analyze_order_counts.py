@@ -222,8 +222,8 @@ def analyze_order_imbalance_quintiles(df):
     print()
     
     # Check if pattern is linear or non-linear
-    very_ask = quintile_analysis.loc['Very Ask-Heavy', 'return_2400'] if 'Very Ask-Heavy' in quintile_analysis.index else None
-    very_bid = quintile_analysis.loc['Very Bid-Heavy', 'return_2400'] if 'Very Bid-Heavy' in quintile_analysis.index else None
+    very_ask = quintile_analysis.loc['Very Ask-Heavy', ('return_2400', 'mean')] if 'Very Ask-Heavy' in quintile_analysis.index else None
+    very_bid = quintile_analysis.loc['Very Bid-Heavy', ('return_2400', 'mean')] if 'Very Bid-Heavy' in quintile_analysis.index else None
     
     if very_ask is not None and very_bid is not None:
         edge = very_bid - very_ask
