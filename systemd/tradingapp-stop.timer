@@ -1,11 +1,11 @@
 [Unit]
 Description=Stop Trading App at 3:40 PM IST
-Requires=tradingapp-market-hours.service
 
 [Timer]
 # Run at 3:40 PM IST (10:10 AM UTC)
 OnCalendar=*-*-* 10:10:00
 Persistent=true
+Unit=tradingapp-market-hours.service
 
 [Install]
 WantedBy=timers.target

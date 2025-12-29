@@ -1,11 +1,11 @@
 [Unit]
 Description=Start Trading App at 9:00 AM IST
-Requires=tradingapp-market-hours.service
 
 [Timer]
 # Run at 9:00 AM IST (3:30 AM UTC)
 OnCalendar=*-*-* 03:30:00
 Persistent=true
+Unit=tradingapp-market-hours.service
 
 [Install]
 WantedBy=timers.target
