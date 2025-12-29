@@ -71,7 +71,7 @@ def calculate_metrics(df):
     df['ask_orders_change'] = df['total_ask_orders'].diff()
     
     # Price movements (future returns) - extended horizons for bigger moves
-    for horizon in [1, 5, 10, 20, 50, 100, 200, 500]:
+    for horizon in [1, 5, 10, 20, 50, 100, 200, 500, 1200, 2400]:
         df[f'return_{horizon}'] = df['mid_price'].diff(horizon).shift(-horizon)
     
     print(f"✓ Calculated metrics")
