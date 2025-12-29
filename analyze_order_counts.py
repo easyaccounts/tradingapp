@@ -344,17 +344,17 @@ def analyze_extreme_order_counts(df):
     print(f"  2400-tick return: {high_bid_orders['return_2400'].mean():+.4f}")
     print()
     
-    print(f"Low Bid Orders (<{low_bid_threshold:.0f}):")
+    print(f"Low Bid Orders (<{bid_orders_low:.0f}):")
     print(f"  Count: {len(low_bid_orders)}")
     print(f"  2400-tick return: {low_bid_orders['return_2400'].mean():+.4f}")
     print()
     
-    print(f"High Ask Orders (>{high_ask_threshold:.0f}):")
+    print(f"High Ask Orders (>{ask_orders_high:.0f}):")
     print(f"  Count: {len(high_ask_orders)}")
     print(f"  2400-tick return: {high_ask_orders['return_2400'].mean():+.4f}")
     print()
     
-    print(f"Low Ask Orders (<{low_ask_threshold:.0f}):")
+    print(f"Low Ask Orders (<{ask_orders_low:.0f}):")
     print(f"  Count: {len(low_ask_orders)}")
     print(f"  2400-tick return: {low_ask_orders['return_2400'].mean():+.4f}")
     print()
