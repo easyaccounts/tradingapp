@@ -65,10 +65,18 @@ def calculate_metrics(df):
     df['ask_order_size'] = df['total_ask_qty'] / df['total_ask_orders']
     df['order_size_ratio'] = df['bid_order_size'] / df['ask_order_size']
     
-    # Changes
+    # Changes - FOCUS ON RATIO VELOCITY (user's key observation)
     df['order_count_imb_change'] = df['order_count_imbalance'].diff()
+    df['order_ratio_velocity'] = df['order_count_imb_change']  # Alias for clarity
+    df['order_ratio_acceleration'] = df['order_count_imb_change'].diff()  # 2nd derivative
     df['bid_orders_change'] = df['total_bid_orders'].diff()
     df['ask_orders_change'] = df['total_ask_orders'].diff()
+    
+    # Percentage changes in order ratio
+    df['order_ratio_pct_change'] = df['order_count_imbalance'].pct_change() * 100
+    
+    # Magnitude of ratio shift (absolute change)
+    df['order_ratio_shift_magnitude'] = df['order_count_imb_change'].abs()
     
     # Price movements (future returns) - extended horizons for bigger moves
     for horizon in [1, 5, 10, 20, 50, 100, 200, 500, 1200, 2400]:
@@ -79,20 +87,22 @@ def calculate_metrics(df):
     return df
 
 def analyze_order_count_correlation(df):
-    """Correlate order counts with price movement"""
+    """Correlate order metrics with future returns - FOCUS ON CHANGES"""
     print("="*100)
-    print("ANALYSIS 1: ORDER COUNT vs PRICE MOVEMENT CORRELATION")
+    print("ANALYSIS 1: ORDER RATIO CHANGES vs PRICE MOVEMENT")
     print("="*100)
+    print()
+    print("Key Insight: Price moves AFTER significant order ratio shifts")
     print()
     
     metrics = [
-        'order_count_imbalance',
-        'order_count_diff',
-        'total_bid_orders',
-        'total_ask_orders',
-        'total_orders',
-        'imbalance_divergence',
-        'order_size_ratio'
+        'order_count_imb_change',      # Velocity of ratio change
+        'order_ratio_velocity',         # Same as above (alias)
+        'order_ratio_pct_change',       # % change in ratio
+        'order_ratio_shift_magnitude',  # Absolute magnitude of shift
+        'bid_orders_change',            # Raw bid order changes
+        'ask_orders_change',            # Raw ask order changes
+        'order_ratio_acceleration'      # 2nd derivative
     ]
     
     horizons = [1, 5, 10, 20, 50, 100, 200, 500, 1200, 2400]
@@ -108,6 +118,90 @@ def analyze_order_count_correlation(df):
         
         print(f"{metric:<30} {correlations[0]:<10} {correlations[1]:<10} {correlations[2]:<10} {correlations[3]:<10} {correlations[4]:<10} {correlations[5]:<10} {correlations[6]:<10} {correlations[7]:<10} {correlations[8]:<10} {correlations[9]:<10}")
     
+    print()
+
+def analyze_order_ratio_shifts(df):
+    """Analyze returns after significant order ratio changes"""
+    print("="*100)
+    print("ANALYSIS 2: SIGNIFICANT ORDER RATIO SHIFTS")
+    print("="*100)
+    print()
+    print("When order bid/ask ratio changes sharply, price follows...")
+    print()
+    
+    # Define shift magnitude categories
+    df['shift_category'] = pd.cut(
+        df['order_ratio_shift_magnitude'],
+        bins=[0, 0.01, 0.02, 0.05, 0.10, 999],
+        labels=['Tiny (<1%)', 'Small (1-2%)', 'Medium (2-5%)', 'Large (5-10%)', 'Extreme (>10%)']
+    )
+    
+    # Separate upward vs downward shifts
+    df['shift_direction'] = np.where(
+        df['order_count_imb_change'] > 0.02, 'Bid Surge',
+        np.where(df['order_count_imb_change'] < -0.02, 'Ask Surge', 'Neutral')
+    )
+    
+    print("Returns by Order Ratio Shift Magnitude:")
+    print("-"*162)
+    
+    shift_analysis = df.groupby('shift_category', observed=True).agg({
+        'return_20': 'mean',
+        'return_50': 'mean',
+        'return_100': 'mean',
+        'return_200': 'mean',
+        'return_500': 'mean',
+        'return_1200': 'mean',
+        'return_2400': 'mean',
+        'order_ratio_shift_magnitude': 'mean',
+        'mid_price': 'count'
+    }).round(4)
+    
+    print(shift_analysis)
+    print()
+    
+    # Direction analysis
+    print("Returns by Shift Direction:")
+    print("-"*162)
+    
+    direction_analysis = df[df['shift_direction'] != 'Neutral'].groupby('shift_direction', observed=True).agg({
+        'return_20': 'mean',
+        'return_50': 'mean',
+        'return_100': 'mean',
+        'return_200': 'mean',
+        'return_500': 'mean',
+        'return_1200': 'mean',
+        'return_2400': 'mean',
+        'order_count_imb_change': 'mean',
+        'mid_price': 'count'
+    }).round(4)
+    
+    print(direction_analysis)
+    print()
+    
+    # Extreme shifts
+    extreme_bid_shift = df[df['order_count_imb_change'] > df['order_count_imb_change'].quantile(0.95)]
+    extreme_ask_shift = df[df['order_count_imb_change'] < df['order_count_imb_change'].quantile(0.05)]
+    
+    print("Extreme Ratio Shifts (95th/5th percentile):")
+    print("-"*100)
+    print(f"\nExtreme BID Ratio Surge (>95th percentile):")
+    print(f"  Threshold: {df['order_count_imb_change'].quantile(0.95):+.4f}")
+    print(f"  Occurrences: {len(extreme_bid_shift)}")
+    print(f"  20-tick:   {extreme_bid_shift['return_20'].mean():+.4f}")
+    print(f"  100-tick:  {extreme_bid_shift['return_100'].mean():+.4f}")
+    print(f"  500-tick:  {extreme_bid_shift['return_500'].mean():+.4f}")
+    print(f"  1200-tick: {extreme_bid_shift['return_1200'].mean():+.4f}")
+    print(f"  2400-tick: {extreme_bid_shift['return_2400'].mean():+.4f}")
+    
+    print(f"\nExtreme ASK Ratio Surge (<5th percentile):")
+    print(f"  Threshold: {df['order_count_imb_change'].quantile(0.05):+.4f}")
+    print(f"  Occurrences: {len(extreme_ask_shift)}")
+    print(f"  20-tick:   {extreme_ask_shift['return_20'].mean():+.4f}")
+    print(f"  100-tick:  {extreme_ask_shift['return_100'].mean():+.4f}")
+    print(f"  500-tick:  {extreme_ask_shift['return_500'].mean():+.4f}")
+    print(f"  1200-tick: {extreme_ask_shift['return_1200'].mean():+.4f}")
+    print(f"  2400-tick: {extreme_ask_shift['return_2400'].mean():+.4f}")
     print()
 
 def analyze_order_imbalance_quintiles(df):
@@ -389,8 +483,9 @@ def main():
     df = fetch_data()
     df = calculate_metrics(df)
     
-    # Run analyses
+    # Run analyses - FOCUS ON RATIO CHANGES (user's observation)
     analyze_order_count_correlation(df)
+    analyze_order_ratio_shifts(df)  # NEW: Core analysis of ratio velocity
     analyze_order_imbalance_quintiles(df)
     analyze_order_surges(df)
     analyze_order_qty_divergence(df)
