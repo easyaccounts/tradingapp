@@ -2,10 +2,9 @@
 -- Stores aggregated metrics from 200-level orderbook data
 
 CREATE TABLE IF NOT EXISTS depth_200_snapshots (
-    id BIGSERIAL PRIMARY KEY,
     timestamp TIMESTAMPTZ NOT NULL,
     security_id INTEGER NOT NULL,
-    instrument_name VARCHAR(100),
+    instrument_name TEXT,
     
     -- Top of book
     best_bid NUMERIC(12, 2),
@@ -31,7 +30,10 @@ CREATE TABLE IF NOT EXISTS depth_200_snapshots (
     
     -- Liquidity concentration (level where 50% volume accumulated)
     bid_50pct_level INTEGER,
-    ask_50pct_level INTEGER
+    ask_50pct_level INTEGER,
+    
+    -- Composite primary key including timestamp for hypertable compatibility
+    PRIMARY KEY (timestamp, security_id)
 );
 
 -- Hypertable for time-series optimization
