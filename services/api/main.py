@@ -13,7 +13,7 @@ from prometheus_client import make_asgi_app
 from redis import Redis
 import asyncpg
 
-from routes import kite, health, orderflow
+from routes import kite, dhan, health, orderflow
 
 # Configure logging
 logging.basicConfig(
@@ -144,6 +144,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, tags=["health"])
 app.include_router(kite.router, prefix="/api/kite", tags=["kite"])
+app.include_router(dhan.router, prefix="/api/dhan", tags=["dhan"])
 app.include_router(orderflow.router, prefix="/api", tags=["orderflow"])
 
 # Mount Prometheus metrics endpoint

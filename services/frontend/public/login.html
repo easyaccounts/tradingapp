@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔐 Kite Login - Trading Platform</title>
+    <title id="pageTitle">🔐 Login - Trading Platform</title>
     <style>
         * {
             margin: 0;
@@ -184,29 +184,29 @@
 <body>
     <div class="container">
         <div class="logo">🔐</div>
-        <h1>Kite Login</h1>
-        <p class="subtitle">
-            You'll be redirected to Zerodha's secure login page
+        <h1 id="pageHeading">Login</h1>
+        <p class="subtitle" id="pageSubtitle">
+            You'll be redirected to secure login page
         </p>
         
         <button id="loginBtn" class="btn" onclick="initiateLogin()">
-            Login with Kite
+            <span id="btnText">Login</span>
         </button>
         
         <div id="loading" class="loading">
             <div class="spinner"></div>
-            <p>Redirecting to Kite login...</p>
+            <p id="loadingText">Redirecting to login...</p>
         </div>
         
         <div id="errorMessage" class="error-message">
             Failed to initiate login. Please try again.
         </div>
         
-        <div class="info-box">
+        <div class="info-box" id="infoBox">
             <h3>What happens next?</h3>
-            <ul>
-                <li>You'll be redirected to Zerodha's login page</li>
-                <li>Enter your Kite credentials securely</li>
+            <ul id="infoList">
+                <li>You'll be redirected to the login page</li>
+                <li>Enter your credentials securely</li>
                 <li>Authorize the Trading Platform app</li>
                 <li>You'll be redirected back automatically</li>
             </ul>
@@ -216,6 +216,37 @@
     </div>
 
     <script>
+        // Get provider from URL parameter (default to kite)
+        const urlParams = new URLSearchParams(window.location.search);
+        const provider = urlParams.get('provider') || 'kite';
+        
+        // Update UI based on provider
+        if (provider === 'dhan') {
+            document.getElementById('pageTitle').textContent = '🔐 Dhan Login - Trading Platform';
+            document.getElementById('pageHeading').textContent = 'Dhan Login';
+            document.getElementById('pageSubtitle').textContent = "You'll be redirected to Dhan's secure login page";
+            document.getElementById('btnText').textContent = 'Login with Dhan';
+            document.getElementById('loadingText').textContent = 'Redirecting to Dhan login...';
+            document.getElementById('infoList').innerHTML = `
+                <li>You'll be redirected to Dhan's login page</li>
+                <li>Enter your Dhan credentials securely</li>
+                <li>Authorize the Trading Platform app</li>
+                <li>You'll be redirected back automatically</li>
+            `;
+        } else {
+            document.getElementById('pageTitle').textContent = '🔐 Kite Login - Trading Platform';
+            document.getElementById('pageHeading').textContent = 'Kite Login';
+            document.getElementById('pageSubtitle').textContent = "You'll be redirected to Zerodha's secure login page";
+            document.getElementById('btnText').textContent = 'Login with Kite';
+            document.getElementById('loadingText').textContent = 'Redirecting to Kite login...';
+            document.getElementById('infoList').innerHTML = `
+                <li>You'll be redirected to Zerodha's login page</li>
+                <li>Enter your Kite credentials securely</li>
+                <li>Authorize the Trading Platform app</li>
+                <li>You'll be redirected back automatically</li>
+            `;
+        }
+        
         async function initiateLogin() {
             const loginBtn = document.getElementById('loginBtn');
             const loading = document.getElementById('loading');
@@ -227,8 +258,9 @@
                 loading.classList.add('active');
                 errorMessage.classList.remove('active');
                 
-                // Fetch login URL from API
-                const response = await fetch('/api/kite/login-url');
+                // Fetch login URL from API (based on provider)
+                const apiEndpoint = provider === 'dhan' ? '/api/dhan/login-url' : '/api/kite/login-url';
+                const response = await fetch(apiEndpoint);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -240,7 +272,7 @@
                     throw new Error('Login URL not received from server');
                 }
                 
-                // Redirect to Kite login page
+                // Redirect to login page
                 window.location.href = data.login_url;
                 
             } catch (error) {
@@ -257,7 +289,6 @@
         }
         
         // Check if we came back from an error
-        const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('error')) {
             const errorMessage = document.getElementById('errorMessage');
             errorMessage.textContent = 'Authentication failed: ' + urlParams.get('error');

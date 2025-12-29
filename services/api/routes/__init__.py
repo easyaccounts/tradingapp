@@ -2,6 +2,6 @@
 Routes package initialization
 """
 
-from . import kite, health
+from . import kite, dhan, health
 
-__all__ = ["kite", "health"]
+__all__ = ["kite", "dhan", "health"]

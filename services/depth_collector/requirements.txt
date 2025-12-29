@@ -1,0 +1,5 @@
+websocket-client
+psycopg2-binary
+pytz
+redis
+requests

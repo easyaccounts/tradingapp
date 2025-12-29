@@ -215,8 +215,8 @@
     <div class="container">
         <div class="checkmark">✅</div>
         <h1>Authentication Successful!</h1>
-        <p class="subtitle">
-            Your Kite account is now connected.<br>
+        <p class="subtitle" id="successMessage">
+            Your account is now connected.<br>
             Data ingestion will start shortly.
         </p>
         
@@ -268,22 +268,60 @@
     </div>
 
     <script>
+        // Get provider from URL parameter (default to kite)
+        const urlParams = new URLSearchParams(window.location.search);
+        const provider = urlParams.get('provider') || 'kite';
+        
+        // Update UI based on provider
+        const providerName = provider === 'dhan' ? 'Dhan' : 'Kite';
+        document.getElementById('successMessage').innerHTML = 
+            `Your ${providerName} account is now connected.<br>Data ingestion will start shortly.`;
+        
         // Fetch authentication status
         async function checkAuthStatus() {
             try {
-                const response = await fetch('/api/kite/status');
+                // Use the appropriate API endpoint based on provider
+                const apiEndpoint = provider === 'dhan' ? '/api/dhan/status' : '/api/kite/status';
+                const response = await fetch(apiEndpoint);
                 const data = await response.json();
                 
                 if (data.authenticated) {
                     document.getElementById('connectionStatus').innerHTML = '✓ Connected';
                     
-                    const hours = Math.floor(data.ttl_seconds / 3600);
-                    const minutes = Math.floor((data.ttl_seconds % 3600) / 60);
-                    document.getElementById('tokenExpiry').textContent = 
-                        `${hours}h ${minutes}m remaining`;
-                    
-                    document.getElementById('userId').textContent = 
-                        data.user_id || 'N/A';
+                    // Handle token expiry display
+                    if (provider === 'dhan') {
+                        // Dhan shows expiry as ISO timestamp
+                        if (data.expiry) {
+                            const expiryDate = new Date(data.expiry);
+                            const now = new Date();
+                            const diffMs = expiryDate - now;
+                            const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                            const diffDays = Math.floor(diffHours / 24);
+                            
+                            if (diffDays > 0) {
+                                document.getElementById('tokenExpiry').textContent = 
+                                    `${diffDays} days remaining`;
+                            } else {
+                                document.getElementById('tokenExpiry').textContent = 
+                                    `${diffHours}h remaining`;
+                            }
+                        } else {
+                            document.getElementById('tokenExpiry').textContent = 'N/A';
+                        }
+                        
+                        // Display client name instead of user ID for Dhan
+                        document.getElementById('userId').textContent = 
+                            data.client_name || 'N/A';
+                    } else {
+                        // Kite shows ttl_seconds
+                        const hours = Math.floor(data.ttl_seconds / 3600);
+                        const minutes = Math.floor((data.ttl_seconds % 3600) / 60);
+                        document.getElementById('tokenExpiry').textContent = 
+                            `${hours}h ${minutes}m remaining`;
+                        
+                        document.getElementById('userId').textContent = 
+                            data.user_id || 'N/A';
+                    }
                     
                     // Update ingestion status after a delay
                     setTimeout(() => {

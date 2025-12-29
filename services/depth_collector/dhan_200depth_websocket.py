@@ -7,12 +7,15 @@ from datetime import datetime
 import pytz
 import time
 import redis
+from dhan_auth import get_dhan_credentials
 
 # Configuration from environment variables
-ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN')
-CLIENT_ID = os.getenv('DHAN_CLIENT_ID')
 SECURITY_ID = os.getenv('SECURITY_ID', '49543')  # December NIFTY futures
 INSTRUMENT_NAME = os.getenv('INSTRUMENT_NAME', 'NIFTY DEC 2025 FUT')
+
+# Dhan credentials (obtained via auth manager)
+ACCESS_TOKEN = None
+CLIENT_ID = None
 
 # Database configuration
 DB_HOST = os.getenv('DB_HOST', 'postgres')
@@ -436,11 +439,29 @@ def on_close(ws, close_status_code, close_msg):
 
 def main():
     """Main function to start WebSocket connection"""
-    global ws, db_conn, db_cursor, redis_client
+    global ws, db_conn, db_cursor, redis_client, ACCESS_TOKEN, CLIENT_ID
+    
+    # Get Dhan credentials (auto-handles token refresh)
+    print("Authenticating with Dhan API...")
+    try:
+        credentials = get_dhan_credentials()
+        ACCESS_TOKEN = credentials['access_token']
+        CLIENT_ID = credentials['client_id']
+        print(f"✓ Authenticated as Client ID: {CLIENT_ID}")
+    except Exception as e:
+        print(f"ERROR: Failed to authenticate with Dhan API: {e}")
+        print("\nSetup instructions:")
+        print("Option 1 - API Key (recommended):")
+        print("  Set: DHAN_API_KEY, DHAN_API_SECRET, DHAN_CLIENT_ID")
+        print("  Follow one-time OAuth flow, then auto-refresh")
+        print("\nOption 2 - Manual Token:")
+        print("  Set: DHAN_ACCESS_TOKEN, DHAN_CLIENT_ID")
+        print("  Renew token daily from web.dhan.co")
+        return
     
     # Validate configuration
     if not ACCESS_TOKEN or not CLIENT_ID:
-        print("ERROR: DHAN_ACCESS_TOKEN and DHAN_CLIENT_ID must be set")
+        print("ERROR: Authentication failed - no valid credentials")
         return
     
     if not DB_PASSWORD:

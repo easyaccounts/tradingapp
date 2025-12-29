@@ -28,6 +28,10 @@ ENV/
 # Environment Variables
 .env
 
+# Dhan Auth Tokens (sensitive)
+data/dhan_token.json
+services/*/data/dhan_token.json
+
 # IDEs
 .vscode/
 .idea/

@@ -7,9 +7,11 @@ RUN pip install --no-cache-dir \
     websocket-client \
     psycopg2-binary \
     pytz \
-    redis
+    redis \
+    requests
 
-# Copy application
+# Copy application files
+COPY dhan_auth.py .
 COPY dhan_200depth_websocket.py .
 
 # Run the collector
