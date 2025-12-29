@@ -1,0 +1,5 @@
+docker-compose stop api ingestion depth-collector frontend nginx  
+&& docker compose rm -f api ingestion depth-collector frontend nginx 
+&& docker-compose build api ingestion depth-collector frontend nginx && 
+docker-compose up -d api ingestion depth-collector frontend nginx
+docker-compose stop ingestion depth-collector signal-generator worker-1 worker-2 worker-3
