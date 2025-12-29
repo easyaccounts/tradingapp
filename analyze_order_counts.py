@@ -78,8 +78,8 @@ def calculate_metrics(df):
     # Magnitude of ratio shift (absolute change)
     df['order_ratio_shift_magnitude'] = df['order_count_imb_change'].abs()
     
-    # Price movements (future returns) - extended horizons for bigger moves
-    for horizon in [1, 5, 10, 20, 50, 100, 200, 500, 1200, 2400]:
+    # Price movements (future returns) - ONLY long horizons for tradeable moves
+    for horizon in [2400, 3600, 4800]:
         df[f'return_{horizon}'] = df['mid_price'].diff(horizon).shift(-horizon)
     
     print(f"✓ Calculated metrics")
@@ -105,10 +105,10 @@ def analyze_order_count_correlation(df):
         'order_ratio_acceleration'      # 2nd derivative
     ]
     
-    horizons = [1, 5, 10, 20, 50, 100, 200, 500, 1200, 2400]
+    horizons = [2400, 3600, 4800]
     
-    print(f"{'Metric':<30} {'1-Tick':<10} {'5-Tick':<10} {'10-Tick':<10} {'20-Tick':<10} {'50-Tick':<10} {'100-Tick':<10} {'200-Tick':<10} {'500-Tick':<10} {'1200-Tick':<10} {'2400-Tick':<10}")
-    print("-"*162)
+    print(f"{'Metric':<30} {'2400-Tick (~10min)':<20} {'3600-Tick (~15min)':<20} {'4800-Tick (~20min)':<20}")
+    print("-"*92)
     
     for metric in metrics:
         correlations = []
@@ -116,7 +116,7 @@ def analyze_order_count_correlation(df):
             corr = df[[metric, f'return_{h}']].corr().iloc[0, 1]
             correlations.append(f"{corr:+.4f}" if pd.notna(corr) else "N/A")
         
-        print(f"{metric:<30} {correlations[0]:<10} {correlations[1]:<10} {correlations[2]:<10} {correlations[3]:<10} {correlations[4]:<10} {correlations[5]:<10} {correlations[6]:<10} {correlations[7]:<10} {correlations[8]:<10} {correlations[9]:<10}")
+        print(f"{metric:<30} {correlations[0]:<20} {correlations[1]:<20} {correlations[2]:<20}")
     
     print()
 
@@ -146,13 +146,9 @@ def analyze_order_ratio_shifts(df):
     print("-"*162)
     
     shift_analysis = df.groupby('shift_category', observed=True).agg({
-        'return_20': 'mean',
-        'return_50': 'mean',
-        'return_100': 'mean',
-        'return_200': 'mean',
-        'return_500': 'mean',
-        'return_1200': 'mean',
         'return_2400': 'mean',
+        'return_3600': 'mean',
+        'return_4800': 'mean',
         'order_ratio_shift_magnitude': 'mean',
         'mid_price': 'count'
     }).round(4)
@@ -165,13 +161,9 @@ def analyze_order_ratio_shifts(df):
     print("-"*162)
     
     direction_analysis = df[df['shift_direction'] != 'Neutral'].groupby('shift_direction', observed=True).agg({
-        'return_20': 'mean',
-        'return_50': 'mean',
-        'return_100': 'mean',
-        'return_200': 'mean',
-        'return_500': 'mean',
-        'return_1200': 'mean',
         'return_2400': 'mean',
+        'return_3600': 'mean',
+        'return_4800': 'mean',
         'order_count_imb_change': 'mean',
         'mid_price': 'count'
     }).round(4)
@@ -188,20 +180,16 @@ def analyze_order_ratio_shifts(df):
     print(f"\nExtreme BID Ratio Surge (>95th percentile):")
     print(f"  Threshold: {df['order_count_imb_change'].quantile(0.95):+.4f}")
     print(f"  Occurrences: {len(extreme_bid_shift)}")
-    print(f"  20-tick:   {extreme_bid_shift['return_20'].mean():+.4f}")
-    print(f"  100-tick:  {extreme_bid_shift['return_100'].mean():+.4f}")
-    print(f"  500-tick:  {extreme_bid_shift['return_500'].mean():+.4f}")
-    print(f"  1200-tick: {extreme_bid_shift['return_1200'].mean():+.4f}")
-    print(f"  2400-tick: {extreme_bid_shift['return_2400'].mean():+.4f}")
+    print(f"  2400-tick (~10min): {extreme_bid_shift['return_2400'].mean():+.4f}")
+    print(f"  3600-tick (~15min): {extreme_bid_shift['return_3600'].mean():+.4f}")
+    print(f"  4800-tick (~20min): {extreme_bid_shift['return_4800'].mean():+.4f}")
     
     print(f"\nExtreme ASK Ratio Surge (<5th percentile):")
     print(f"  Threshold: {df['order_count_imb_change'].quantile(0.05):+.4f}")
     print(f"  Occurrences: {len(extreme_ask_shift)}")
-    print(f"  20-tick:   {extreme_ask_shift['return_20'].mean():+.4f}")
-    print(f"  100-tick:  {extreme_ask_shift['return_100'].mean():+.4f}")
-    print(f"  500-tick:  {extreme_ask_shift['return_500'].mean():+.4f}")
-    print(f"  1200-tick: {extreme_ask_shift['return_1200'].mean():+.4f}")
-    print(f"  2400-tick: {extreme_ask_shift['return_2400'].mean():+.4f}")
+    print(f"  2400-tick (~10min): {extreme_ask_shift['return_2400'].mean():+.4f}")
+    print(f"  3600-tick (~15min): {extreme_ask_shift['return_3600'].mean():+.4f}")
+    print(f"  4800-tick (~20min): {extreme_ask_shift['return_4800'].mean():+.4f}")
     print()
 
 def analyze_order_imbalance_quintiles(df):
@@ -223,16 +211,9 @@ def analyze_order_imbalance_quintiles(df):
     print("-"*100)
     
     quintile_analysis = df.groupby('order_imb_quintile', observed=True).agg({
-        'return_1': 'mean',
-        'return_5': 'mean',
-        'return_10': 'mean',
-        'return_20': 'mean',
-        'return_50': 'mean',
-        'return_100': 'mean',
-        'return_200': 'mean',
-        'return_500': 'mean',
-        'return_1200': 'mean',
         'return_2400': 'mean',
+        'return_3600': 'mean',
+        'return_4800': 'mean',
         'order_count_imbalance': ['mean', 'min', 'max'],
         'mid_price': 'count'
     }).round(4)
@@ -276,16 +257,9 @@ def analyze_order_surges(df):
     
     if len(bid_surges) > 0:
         print("Bid Order Surges - Future Returns:")
-        print(f"  1-tick:    {bid_surges['return_1'].mean():+.4f}")
-        print(f"  5-tick:    {bid_surges['return_5'].mean():+.4f}")
-        print(f"  10-tick:   {bid_surges['return_10'].mean():+.4f}")
-        print(f"  20-tick:   {bid_surges['return_20'].mean():+.4f}")
-        print(f"  50-tick:   {bid_surges['return_50'].mean():+.4f}")
-        print(f"  100-tick:  {bid_surges['return_100'].mean():+.4f}")
-        print(f"  200-tick:  {bid_surges['return_200'].mean():+.4f}")
-        print(f"  500-tick:  {bid_surges['return_500'].mean():+.4f}")
-        print(f"  1200-tick: {bid_surges['return_1200'].mean():+.4f}")
-        print(f"  2400-tick: {bid_surges['return_2400'].mean():+.4f}")
+        print(f"  2400-tick (~10min): {bid_surges['return_2400'].mean():+.4f}")
+        print(f"  3600-tick (~15min): {bid_surges['return_3600'].mean():+.4f}")
+        print(f"  4800-tick (~20min): {bid_surges['return_4800'].mean():+.4f}")
         print()
     
     print(f"Ask Order Surge Threshold: +{ask_order_threshold:.0f} orders")
@@ -294,16 +268,9 @@ def analyze_order_surges(df):
     
     if len(ask_surges) > 0:
         print("Ask Order Surges - Future Returns:")
-        print(f"  1-tick:    {ask_surges['return_1'].mean():+.4f}")
-        print(f"  5-tick:    {ask_surges['return_5'].mean():+.4f}")
-        print(f"  10-tick:   {ask_surges['return_10'].mean():+.4f}")
-        print(f"  20-tick:   {ask_surges['return_20'].mean():+.4f}")
-        print(f"  50-tick:   {ask_surges['return_50'].mean():+.4f}")
-        print(f"  100-tick:  {ask_surges['return_100'].mean():+.4f}")
-        print(f"  200-tick:  {ask_surges['return_200'].mean():+.4f}")
-        print(f"  500-tick:  {ask_surges['return_500'].mean():+.4f}")
-        print(f"  1200-tick: {ask_surges['return_1200'].mean():+.4f}")
-        print(f"  2400-tick: {ask_surges['return_2400'].mean():+.4f}")
+        print(f"  2400-tick (~10min): {ask_surges['return_2400'].mean():+.4f}")
+        print(f"  3600-tick (~15min): {ask_surges['return_3600'].mean():+.4f}")
+        print(f"  4800-tick (~20min): {ask_surges['return_4800'].mean():+.4f}")
         print()
 
 def analyze_order_qty_divergence(df):
@@ -326,16 +293,9 @@ def analyze_order_qty_divergence(df):
     )
     
     divergence_analysis = df.groupby('divergence_category', observed=True).agg({
-        'return_1': 'mean',
-        'return_5': 'mean',
-        'return_10': 'mean',
-        'return_20': 'mean',
-        'return_50': 'mean',
-        'return_100': 'mean',
-        'return_200': 'mean',
-        'return_500': 'mean',
-        'return_1200': 'mean',
         'return_2400': 'mean',
+        'return_3600': 'mean',
+        'return_4800': 'mean',
         'imbalance_divergence': 'mean',
         'mid_price': 'count'
     }).round(4)
@@ -381,22 +341,22 @@ def analyze_extreme_order_counts(df):
     
     print(f"High Bid Orders (>{bid_orders_high:.0f}):")
     print(f"  Count: {len(high_bid_orders)}")
-    print(f"  20-tick return: {high_bid_orders['return_20'].mean():+.4f}")
+    print(f"  2400-tick return: {high_bid_orders['return_2400'].mean():+.4f}")
     print()
     
-    print(f"Low Bid Orders (<{bid_orders_low:.0f}):")
+    print(f"Low Bid Orders (<{low_bid_threshold:.0f}):")
     print(f"  Count: {len(low_bid_orders)}")
-    print(f"  20-tick return: {low_bid_orders['return_20'].mean():+.4f}")
+    print(f"  2400-tick return: {low_bid_orders['return_2400'].mean():+.4f}")
     print()
     
-    print(f"High Ask Orders (>{ask_orders_high:.0f}):")
+    print(f"High Ask Orders (>{high_ask_threshold:.0f}):")
     print(f"  Count: {len(high_ask_orders)}")
-    print(f"  20-tick return: {high_ask_orders['return_20'].mean():+.4f}")
+    print(f"  2400-tick return: {high_ask_orders['return_2400'].mean():+.4f}")
     print()
     
-    print(f"Low Ask Orders (<{ask_orders_low:.0f}):")
+    print(f"Low Ask Orders (<{low_ask_threshold:.0f}):")
     print(f"  Count: {len(low_ask_orders)}")
-    print(f"  20-tick return: {low_ask_orders['return_20'].mean():+.4f}")
+    print(f"  2400-tick return: {low_ask_orders['return_2400'].mean():+.4f}")
     print()
 
 def find_tradeable_setups(df):
@@ -415,25 +375,19 @@ def find_tradeable_setups(df):
     print(f"Extreme Bid-Heavy Orders (>95th percentile):")
     print(f"  Threshold: {df['order_count_imbalance'].quantile(0.95):.3f}")
     print(f"  Occurrences: {len(extreme_bid_heavy)}")
-    print(f"  Avg 20-tick return: {extreme_bid_heavy['return_20'].mean():+.4f}")
-    print(f"  Avg 100-tick return: {extreme_bid_heavy['return_100'].mean():+.4f}")
-    print(f"  Avg 200-tick return: {extreme_bid_heavy['return_200'].mean():+.4f}")
-    print(f"  Avg 500-tick return: {extreme_bid_heavy['return_500'].mean():+.4f}")
-    print(f"  Avg 1200-tick return: {extreme_bid_heavy['return_1200'].mean():+.4f}")
-    print(f"  Avg 2400-tick return: {extreme_bid_heavy['return_2400'].mean():+.4f}")
-    print(f"  Win rate (>0): {(extreme_bid_heavy['return_20'] > 0).sum() / len(extreme_bid_heavy) * 100:.1f}%")
+    print(f"  2400-tick (~10min): {extreme_bid_heavy['return_2400'].mean():+.4f}")
+    print(f"  3600-tick (~15min): {extreme_bid_heavy['return_3600'].mean():+.4f}")
+    print(f"  4800-tick (~20min): {extreme_bid_heavy['return_4800'].mean():+.4f}")
+    print(f"  Win rate (>0): {(extreme_bid_heavy['return_2400'] > 0).sum() / len(extreme_bid_heavy) * 100:.1f}%")
     print()
     
     print(f"Extreme Ask-Heavy Orders (<5th percentile):")
     print(f"  Threshold: {df['order_count_imbalance'].quantile(0.05):.3f}")
     print(f"  Occurrences: {len(extreme_ask_heavy)}")
-    print(f"  Avg 20-tick return: {extreme_ask_heavy['return_20'].mean():+.4f}")
-    print(f"  Avg 100-tick return: {extreme_ask_heavy['return_100'].mean():+.4f}")
-    print(f"  Avg 200-tick return: {extreme_ask_heavy['return_200'].mean():+.4f}")
-    print(f"  Avg 500-tick return: {extreme_ask_heavy['return_500'].mean():+.4f}")
-    print(f"  Avg 1200-tick return: {extreme_ask_heavy['return_1200'].mean():+.4f}")
-    print(f"  Avg 2400-tick return: {extreme_ask_heavy['return_2400'].mean():+.4f}")
-    print(f"  Win rate (>0): {(extreme_ask_heavy['return_20'] > 0).sum() / len(extreme_ask_heavy) * 100:.1f}%")
+    print(f"  2400-tick (~10min): {extreme_ask_heavy['return_2400'].mean():+.4f}")
+    print(f"  3600-tick (~15min): {extreme_ask_heavy['return_3600'].mean():+.4f}")
+    print(f"  4800-tick (~20min): {extreme_ask_heavy['return_4800'].mean():+.4f}")
+    print(f"  Win rate (>0): {(extreme_ask_heavy['return_2400'] > 0).sum() / len(extreme_ask_heavy) * 100:.1f}%")
     print()
     
     # Pattern 2: Order surge + divergence
@@ -448,13 +402,10 @@ def find_tradeable_setups(df):
     print(f"Conditions: Bid orders surge >{bid_surge_thresh:.0f} + Many small orders")
     print(f"Occurrences: {len(order_surges_with_divergence)}")
     if len(order_surges_with_divergence) > 0:
-        print(f"Avg 20-tick return: {order_surges_with_divergence['return_20'].mean():+.4f}")
-        print(f"Avg 100-tick return: {order_surges_with_divergence['return_100'].mean():+.4f}")
-        print(f"Avg 200-tick return: {order_surges_with_divergence['return_200'].mean():+.4f}")
-        print(f"Avg 500-tick return: {order_surges_with_divergence['return_500'].mean():+.4f}")
-        print(f"Avg 1200-tick return: {order_surges_with_divergence['return_1200'].mean():+.4f}")
-        print(f"Avg 2400-tick return: {order_surges_with_divergence['return_2400'].mean():+.4f}")
-        print(f"Interpretation: Retail FOMO buying - contrarian SHORT?")
+        print(f"2400-tick (~10min): {order_surges_with_divergence['return_2400'].mean():+.4f}")
+        print(f"3600-tick (~15min): {order_surges_with_divergence['return_3600'].mean():+.4f}")
+        print(f"4800-tick (~20min): {order_surges_with_divergence['return_4800'].mean():+.4f}")
+        print(f"Interpretation: Retail FOMO buying - likely continuation pattern")
     print()
     
     # Pattern 3: Order exhaustion (very low orders)
@@ -464,7 +415,7 @@ def find_tradeable_setups(df):
     print("-"*100)
     print(f"Threshold: <{df['total_orders'].quantile(0.10):.0f} total orders")
     print(f"Occurrences: {len(low_total_orders)}")
-    print(f"Avg 20-tick return: {low_total_orders['return_20'].mean():+.4f}")
+    print(f"2400-tick (~10min): {low_total_orders['return_2400'].mean():+.4f}")
     print(f"Interpretation: Low participation = range-bound or reversal zone")
     print()
     
