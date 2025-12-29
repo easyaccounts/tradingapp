@@ -6,7 +6,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     websocket-client \
     psycopg2-binary \
-    pytz
+    pytz \
+    redis
 
 # Copy application
 COPY dhan_200depth_websocket.py .

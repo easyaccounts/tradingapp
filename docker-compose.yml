@@ -347,9 +347,38 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_URL: ${REDIS_URL}
     depends_on:
       timescaledb:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradingapp-network
+
+  # Signal Generator - Calculates trading signals from depth data
+  signal-generator:
+    build:
+      context: ./services/signal_generator
+      dockerfile: Dockerfile
+    container_name: tradingapp-signal-generator
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      SECURITY_ID: ${DHAN_SECURITY_ID:-49543}
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      depth-collector:
+        condition: service_started
     restart: unless-stopped
     networks:
       - tradingapp-network

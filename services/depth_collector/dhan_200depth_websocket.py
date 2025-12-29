@@ -6,6 +6,7 @@ import psycopg2
 from datetime import datetime
 import pytz
 import time
+import redis
 
 # Configuration from environment variables
 ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN')
@@ -20,6 +21,9 @@ DB_NAME = os.getenv('DB_NAME', 'tradingdb')
 DB_USER = os.getenv('DB_USER', 'tradinguser')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
 
+# Redis configuration
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+
 ist = pytz.timezone('Asia/Kolkata')
 
 # Feed Response Codes
@@ -31,6 +35,7 @@ RESPONSE_DISCONNECT = 50
 ws = None
 db_conn = None
 db_cursor = None
+redis_client = None
 snapshot_count = 0
 start_time = None
 
@@ -60,6 +65,26 @@ def get_db_connection():
             else:
                 print(f"✗ Failed to connect to database after {max_retries} attempts")
                 raise
+
+def get_redis_connection():
+    """Establish Redis connection with retry logic"""
+    max_retries = 5
+    retry_delay = 5
+    
+    for attempt in range(max_retries):
+        try:
+            client = redis.from_url(REDIS_URL, decode_responses=True)
+            client.ping()  # Test connection
+            print(f"✓ Redis connected: {REDIS_URL}")
+            return client
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Redis connection failed (attempt {attempt+1}/{max_retries}): {e}")
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print(f"⚠ Failed to connect to Redis after {max_retries} attempts - continuing without Redis")
+                return None
 
 # Global buffer for batch inserts of 200 levels
 depth_levels_buffer = []
@@ -333,6 +358,24 @@ def on_message(ws, message):
                     # Save individual 200 levels to database
                     save_depth_levels_to_db(db_cursor, bid_depth, ask_depth, timestamp_utc, int(SECURITY_ID))
                     
+                    # Publish to Redis for signal-generator (top 20 levels for efficiency)
+                    if redis_client:
+                        try:
+                            current_price = bid_depth[0]['price']  # Use best bid as current price
+                            snapshot_data = {
+                                'timestamp': timestamp_utc.isoformat(),
+                                'current_price': current_price,
+                                'bids': [{'price': lvl['price'], 'quantity': lvl['quantity'], 'orders': lvl['orders']} 
+                                        for lvl in bid_depth[:20]],
+                                'asks': [{'price': lvl['price'], 'quantity': lvl['quantity'], 'orders': lvl['orders']} 
+                                        for lvl in ask_depth[:20]]
+                            }
+                            redis_client.publish('depth_snapshots:NIFTY', json.dumps(snapshot_data))
+                        except Exception as redis_error:
+                            # Don't let Redis errors stop data collection
+                            if snapshot_count % 1000 == 0:  # Print error occasionally, not every time
+                                print(f"Redis publish error: {redis_error}")
+                    
                     snapshot_count += 1
                     
                     # Print progress every 100 snapshots
@@ -385,10 +428,15 @@ def on_close(ws, close_status_code, close_msg):
     if db_conn:
         db_conn.close()
         print("Database connection closed")
+    
+    # Close Redis connection
+    if redis_client:
+        redis_client.close()
+        print("Redis connection closed")
 
 def main():
     """Main function to start WebSocket connection"""
-    global ws, db_conn, db_cursor
+    global ws, db_conn, db_cursor, redis_client
     
     # Validate configuration
     if not ACCESS_TOKEN or not CLIENT_ID:
@@ -406,6 +454,9 @@ def main():
     except Exception as e:
         print(f"Failed to connect to database: {e}")
         return
+    
+    # Connect to Redis
+    redis_client = get_redis_connection()
     
     # WebSocket URL
     ws_url = (

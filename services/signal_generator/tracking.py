@@ -1,0 +1,167 @@
+"""
+Level Tracking Module
+Tracks order book levels from discovery to resolution
+"""
+
+from datetime import datetime
+from typing import Optional
+
+
+class TrackedLevel:
+    """Represents a tracked price level with order concentration"""
+    
+    def __init__(self, price: float, side: str, initial_orders: int, timestamp: datetime):
+        self.price = price
+        self.side = side  # 'support' or 'resistance'
+        self.first_seen = timestamp
+        self.peak_orders = initial_orders
+        self.current_orders = initial_orders
+        self.order_history = [(timestamp, initial_orders)]
+        self.price_distance_history = []
+        self.price_touched = False
+        self.tests = 0  # How many times price tested this level
+        self.status = 'forming'  # forming → active → breaking → broken
+        self.last_updated = timestamp
+    
+    def update(self, orders: int, current_price: float, timestamp: datetime):
+        """Update level with new data"""
+        self.current_orders = orders
+        self.last_updated = timestamp
+        
+        # Track history (keep last 60 snapshots)
+        self.order_history.append((timestamp, orders))
+        if len(self.order_history) > 60:
+            self.order_history.pop(0)
+        
+        # Track price distance
+        distance = abs(current_price - self.price)
+        self.price_distance_history.append((timestamp, distance))
+        if len(self.price_distance_history) > 60:
+            self.price_distance_history.pop(0)
+        
+        # Check if price touched this level
+        if distance <= 5:  # Within 5 points
+            self.price_touched = True
+            self.tests += 1
+        
+        # Update peak
+        if orders > self.peak_orders:
+            self.peak_orders = orders
+        
+        # Update status
+        if self.age_seconds > 10:
+            self.status = 'active'
+    
+    @property
+    def age_seconds(self) -> int:
+        """Age of this level in seconds"""
+        return int((self.last_updated - self.first_seen).total_seconds())
+    
+    @property
+    def age_display(self) -> str:
+        """Human-readable age"""
+        age = self.age_seconds
+        if age < 60:
+            return f"{age}s"
+        elif age < 3600:
+            return f"{age // 60}m {age % 60}s"
+        else:
+            return f"{age // 3600}h {(age % 3600) // 60}m"
+    
+    def get_order_trend(self, window: int = 20) -> str:
+        """Analyze if orders are increasing, decreasing, or stable"""
+        if len(self.order_history) < window:
+            return 'unknown'
+        
+        recent = [orders for _, orders in self.order_history[-window:]]
+        
+        # Count increasing vs decreasing pairs
+        increases = sum(1 for i in range(len(recent)-1) if recent[i+1] > recent[i])
+        decreases = sum(1 for i in range(len(recent)-1) if recent[i+1] < recent[i])
+        
+        if increases > decreases * 1.5:
+            return 'increasing'
+        elif decreases > increases * 1.5:
+            return 'decreasing'
+        else:
+            return 'stable'
+    
+    def is_consistent_decline(self, window: int = 20) -> bool:
+        """Check if orders are consistently declining (not flickering)"""
+        if len(self.order_history) < window:
+            return False
+        
+        recent = [orders for _, orders in self.order_history[-window:]]
+        
+        # At least 70% of comparisons should be declines
+        declines = sum(1 for i in range(len(recent)-1) if recent[i] > recent[i+1])
+        return declines / (len(recent) - 1) > 0.7
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'price': float(self.price),
+            'side': self.side,
+            'orders': self.current_orders,
+            'peak_orders': self.peak_orders,
+            'age_seconds': self.age_seconds,
+            'age_display': self.age_display,
+            'tests': self.tests,
+            'status': self.status,
+            'price_touched': self.price_touched,
+            'trend': self.get_order_trend()
+        }
+
+
+class LevelTracker:
+    """Manages multiple tracked levels"""
+    
+    def __init__(self):
+        self.levels = {}  # price -> TrackedLevel
+    
+    def add_level(self, price: float, side: str, orders: int, timestamp: datetime):
+        """Add a new level to track"""
+        self.levels[price] = TrackedLevel(price, side, orders, timestamp)
+    
+    def update_level(self, price: float, orders: int, current_price: float, timestamp: datetime):
+        """Update existing level"""
+        if price in self.levels:
+            self.levels[price].update(orders, current_price, timestamp)
+    
+    def remove_level(self, price: float):
+        """Remove a level from tracking"""
+        if price in self.levels:
+            del self.levels[price]
+    
+    def get_level(self, price: float) -> Optional[TrackedLevel]:
+        """Get a specific level"""
+        return self.levels.get(price)
+    
+    def get_all_levels(self) -> list:
+        """Get all tracked levels"""
+        return list(self.levels.values())
+    
+    def cleanup_stale_levels(self, current_price: float, timestamp: datetime, max_age: int = 600, max_distance: int = 150):
+        """Remove levels that are no longer relevant"""
+        to_remove = []
+        
+        for price, level in self.levels.items():
+            # Remove if too far from price
+            if abs(price - current_price) > max_distance:
+                to_remove.append(price)
+                continue
+            
+            # Remove if too old and never tested
+            if level.age_seconds > max_age and not level.price_touched:
+                to_remove.append(price)
+                continue
+            
+            # Remove if orders dropped to insignificance and not tested
+            if level.current_orders < 20 and not level.price_touched:
+                to_remove.append(price)
+                continue
+        
+        for price in to_remove:
+            self.remove_level(price)
+        
+        return len(to_remove)
