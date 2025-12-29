@@ -9,9 +9,13 @@ import psycopg2
 import structlog
 from typing import Dict, Optional, List
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from models import KiteTick, EnrichedTick, InstrumentInfo
 
 logger = structlog.get_logger()
+
+# IST timezone for timestamp conversion
+IST = ZoneInfo('Asia/Kolkata')
 
 
 def load_instruments_cache(database_url: str, redis_client: Optional[redis.Redis] = None) -> Dict[int, InstrumentInfo]:
@@ -207,11 +211,26 @@ def enrich_tick(
     )
     change_percent = _calculate_change_percent(raw_tick.change, day_close)
     
+    # Convert timestamps from UTC to IST
+    utc_time = raw_tick.timestamp or datetime.utcnow()
+    if utc_time.tzinfo is None:
+        # If naive datetime, assume UTC
+        utc_time = utc_time.replace(tzinfo=ZoneInfo('UTC'))
+    ist_time = utc_time.astimezone(IST)
+    
+    # Convert last_trade_time if present
+    ist_last_trade_time = None
+    if raw_tick.last_trade_time:
+        if raw_tick.last_trade_time.tzinfo is None:
+            ist_last_trade_time = raw_tick.last_trade_time.replace(tzinfo=ZoneInfo('UTC')).astimezone(IST)
+        else:
+            ist_last_trade_time = raw_tick.last_trade_time.astimezone(IST)
+    
     # Create enriched tick
     enriched = EnrichedTick(
-        # Timestamps (use UTC to avoid timezone issues)
-        time=raw_tick.timestamp or datetime.utcnow(),
-        last_trade_time=raw_tick.last_trade_time,
+        # Timestamps in IST
+        time=ist_time,
+        last_trade_time=ist_last_trade_time,
         
         # Instrument identification
         instrument_token=raw_tick.instrument_token,
