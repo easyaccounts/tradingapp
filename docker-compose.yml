@@ -345,6 +345,8 @@ services:
     environment:
       DHAN_ACCESS_TOKEN: ${DHAN_ACCESS_TOKEN}
       DHAN_CLIENT_ID: ${DHAN_CLIENT_ID}
+      DHAN_API_KEY: ${DHAN_API_KEY}
+      DHAN_API_SECRET: ${DHAN_API_SECRET}
       SECURITY_ID: ${DHAN_SECURITY_ID:-49543}
       INSTRUMENT_NAME: ${DHAN_INSTRUMENT_NAME:-NIFTY DEC 2025 FUT}
       DB_HOST: timescaledb
@@ -353,6 +355,8 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: ${REDIS_URL}
+    volumes:
+      - tokendata:/app/data
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -401,6 +405,10 @@ volumes:
     driver: local
   tokendata:
     driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/tradingapp/data
 
 networks:
   tradingapp-network:

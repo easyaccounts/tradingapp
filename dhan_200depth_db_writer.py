@@ -7,10 +7,14 @@ from datetime import datetime
 import pytz
 import time
 import os
+from dhan_auth import get_dhan_credentials
 
-# Configuration
-ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzY3MDc2MDI1LCJpYXQiOjE3NjY5ODk2MjUsInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTA5NzE5NzcxIn0.YjrUkXL5YlXWBBvoiXaMBnbHGcnWFX73jgCn9iH95uTjdfcIRMwm7nR5v3ZSn0BCwFha5qPhLI7d_cRAsnpT-w"
-CLIENT_ID = "1109719771"
+# Load OAuth credentials
+print("Loading Dhan OAuth credentials...")
+credentials = get_dhan_credentials()
+ACCESS_TOKEN = credentials['access_token']
+CLIENT_ID = credentials['client_id']
+print(f"✓ Authenticated with Client ID: {CLIENT_ID}")
 SECURITY_ID = "49543"  # December NIFTY futures
 
 # Database configuration

@@ -32,7 +32,24 @@ class DhanAuthManager:
         self.api_key = api_key or os.getenv('DHAN_API_KEY')
         self.api_secret = api_secret or os.getenv('DHAN_API_SECRET')
         self.client_id = client_id or os.getenv('DHAN_CLIENT_ID')
-        self.token_file = Path(token_file)
+        
+        # Try multiple token file locations (VPS absolute path, relative path, /app/data for containers)
+        possible_paths = [
+            token_file,
+            '/opt/tradingapp/data/dhan_token.json',  # VPS host path
+            '/app/data/dhan_token.json'  # Docker container path
+        ]
+        
+        self.token_file = None
+        for path in possible_paths:
+            p = Path(path)
+            if p.exists():
+                self.token_file = p
+                break
+        
+        # If no existing file found, use the provided path (will be created)
+        if not self.token_file:
+            self.token_file = Path(token_file)
         
         # Ensure token directory exists
         self.token_file.parent.mkdir(parents=True, exist_ok=True)
