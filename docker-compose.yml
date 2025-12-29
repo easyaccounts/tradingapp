@@ -143,6 +143,8 @@ services:
       KITE_API_KEY: ${KITE_API_KEY}
       DATABASE_URL: ${DATABASE_URL}
       LOG_LEVEL: ${LOG_LEVEL}
+      INGESTION_BATCH_SIZE: ${INGESTION_BATCH_SIZE}
+      INGESTION_BATCH_TIMEOUT: ${INGESTION_BATCH_TIMEOUT}
     volumes:
       - tokendata:/app/data
     depends_on:
@@ -169,7 +171,7 @@ services:
       RABBITMQ_URL: ${RABBITMQ_URL}
       BATCH_SIZE: ${BATCH_SIZE}
       BATCH_TIMEOUT: ${BATCH_TIMEOUT}
-      PREFETCH_COUNT: 100
+      PREFETCH_COUNT: ${PREFETCH_COUNT}
       LOG_LEVEL: ${LOG_LEVEL}
     depends_on:
       pgbouncer:
@@ -195,7 +197,7 @@ services:
       RABBITMQ_URL: ${RABBITMQ_URL}
       BATCH_SIZE: ${BATCH_SIZE}
       BATCH_TIMEOUT: ${BATCH_TIMEOUT}
-      PREFETCH_COUNT: 100
+      PREFETCH_COUNT: ${PREFETCH_COUNT}
       LOG_LEVEL: ${LOG_LEVEL}
     depends_on:
       pgbouncer:
@@ -221,7 +223,7 @@ services:
       RABBITMQ_URL: ${RABBITMQ_URL}
       BATCH_SIZE: ${BATCH_SIZE}
       BATCH_TIMEOUT: ${BATCH_TIMEOUT}
-      PREFETCH_COUNT: 100
+      PREFETCH_COUNT: ${PREFETCH_COUNT}
       LOG_LEVEL: ${LOG_LEVEL}
     depends_on:
       pgbouncer:

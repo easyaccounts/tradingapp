@@ -4,6 +4,7 @@ Manages WebSocket connection to Kite and processes incoming ticks
 """
 
 import time
+import os
 import structlog
 from typing import List, Dict
 from kiteconnect import KiteTicker
@@ -24,9 +25,9 @@ class KiteWebSocketHandler:
     MODE_QUOTE = "quote"
     MODE_FULL = "full"
     
-    # Batch publishing configuration
-    BATCH_SIZE = 50  # Number of ticks per batch
-    BATCH_TIMEOUT = 0.5  # Seconds before forcing flush
+    # Batch publishing configuration from environment
+    BATCH_SIZE = int(os.getenv("INGESTION_BATCH_SIZE", 500))  # Number of ticks per batch
+    BATCH_TIMEOUT = float(os.getenv("INGESTION_BATCH_TIMEOUT", 0.5))  # Seconds before forcing flush
     
     def __init__(
         self,

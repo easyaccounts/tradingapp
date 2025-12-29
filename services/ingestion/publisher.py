@@ -133,28 +133,64 @@ class RabbitMQPublisher:
     
     def publish_batch(self, messages: list) -> int:
         """
-        Publish multiple messages in batch
+        Publish batch of messages as a SINGLE message containing array
+        This is much more efficient than publishing each tick individually
         
         Args:
-            messages: List of dictionaries to publish
+            messages: List of dictionaries to publish as batch
         
         Returns:
-            int: Number of successfully published messages
+            int: Number of ticks in batch if successful, 0 otherwise
         """
-        success_count = 0
+        if not messages:
+            return 0
         
-        for message in messages:
-            if self.publish(message):
-                success_count += 1
+        batch_size = len(messages)
         
-        logger.info(
-            "batch_published",
-            total=len(messages),
-            successful=success_count,
-            failed=len(messages) - success_count
-        )
+        try:
+            # Check connection
+            if not self.connection or self.connection.is_closed:
+                logger.warning("rabbitmq_connection_lost", action="reconnecting")
+                self._connect()
+            
+            # Serialize entire batch as single JSON array
+            body = json.dumps(messages)
+            
+            # Publish batch as ONE message
+            self.channel.basic_publish(
+                exchange=self.EXCHANGE_NAME,
+                routing_key=self.QUEUE_NAME,
+                body=body,
+                properties=pika.BasicProperties(
+                    delivery_mode=2,  # Make message persistent
+                    content_type='application/json',
+                    timestamp=int(time.time())
+                )
+            )
+            
+            logger.info(
+                "batch_published",
+                total=batch_size,
+                successful=batch_size,
+                failed=0
+            )
+            
+            return batch_size
         
-        return success_count
+        except Exception as e:
+            logger.error(
+                "batch_publish_failed",
+                error=str(e),
+                batch_size=batch_size
+            )
+            
+            # Try to reconnect
+            try:
+                self._connect()
+            except:
+                pass
+            
+            return 0
     
     def get_queue_depth(self) -> int:
         """
