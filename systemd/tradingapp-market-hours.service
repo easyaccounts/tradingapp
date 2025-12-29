@@ -1,0 +1,16 @@
+[Unit]
+Description=Trading App Market Data Services
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/tradingapp
+ExecStart=/usr/bin/docker-compose up -d ingestion depth-collector worker
+ExecStop=/usr/bin/docker-compose stop ingestion depth-collector worker
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
