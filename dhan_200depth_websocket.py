@@ -5,11 +5,22 @@ import csv
 from datetime import datetime
 import pytz
 import time
+import psycopg2
+from psycopg2.extras import execute_batch
+import os
 
 # Configuration
 ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzY3MDc2MDI1LCJpYXQiOjE3NjY5ODk2MjUsInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTA5NzE5NzcxIn0.YjrUkXL5YlXWBBvoiXaMBnbHGcnWFX73jgCn9iH95uTjdfcIRMwm7nR5v3ZSn0BCwFha5qPhLI7d_cRAsnpT-w"
 CLIENT_ID = "1109719771"
 SECURITY_ID = "49543"  # December NIFTY futures
+SECURITY_ID_INT = 49543
+
+# Database configuration
+DB_HOST = os.getenv('DB_HOST', 'pgbouncer')
+DB_PORT = os.getenv('DB_PORT', '5432')
+DB_NAME = os.getenv('DB_NAME', 'tradingdb')
+DB_USER = os.getenv('DB_USER', 'tradinguser')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '5Ke1Ne9TLlI1TNv1F6JEfefNvDvy0jZv66Sh0vqQJKQ=')
 
 # CSV file to log depth data
 csv_file = "dhan_200depth_nifty_futures.csv"
@@ -23,8 +34,93 @@ RESPONSE_DISCONNECT = 50
 # Global variables
 ws = None
 depth_snapshots = []
+db_conn = None
+db_batch_buffer = []
+BATCH_SIZE = 400  # Insert 400 rows (2 snapshots) at a time
 snapshot_count = 0
 start_time = None
+
+def connect_db():
+    """Establish database connection"""
+    global db_conn
+    try:
+        db_conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD
+        )
+        db_conn.autocommit = False
+        print(f"✓ Connected to database at {DB_HOST}:{DB_PORT}")
+    except Exception as e:
+        print(f"✗ Database connection failed: {e}")
+        db_conn = None
+
+def insert_depth_levels_batch(batch_data):
+    """Insert batch of depth levels to database"""
+    global db_conn
+    
+    if not db_conn:
+        return
+    
+    try:
+        cursor = db_conn.cursor()
+        
+        # Prepare insert query
+        insert_query = """
+            INSERT INTO depth_levels_200 
+            (time, security_id, instrument_name, side, level_num, price, quantity, orders)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (time, security_id, side, level_num) DO NOTHING
+        """
+        
+        # Execute batch insert
+        execute_batch(cursor, insert_query, batch_data, page_size=400)
+        db_conn.commit()
+        cursor.close()
+        
+    except Exception as e:
+        print(f"✗ Database insert error: {e}")
+        if db_conn:
+            db_conn.rollback()
+        # Try to reconnect
+        connect_db()
+
+def save_depth_to_db(timestamp, bid_levels, ask_levels):
+    """Buffer depth levels and batch insert to database"""
+    global db_batch_buffer
+    
+    # Add bid levels to buffer
+    for level_data in bid_levels:
+        db_batch_buffer.append((
+            timestamp,
+            SECURITY_ID_INT,
+            'NIFTY DEC 2025 FUT',
+            'BID',
+            level_data['level'],
+            level_data['price'],
+            level_data['quantity'],
+            level_data['orders']
+        ))
+    
+    # Add ask levels to buffer
+    for level_data in ask_levels:
+        db_batch_buffer.append((
+            timestamp,
+            SECURITY_ID_INT,
+            'NIFTY DEC 2025 FUT',
+            'ASK',
+            level_data['level'],
+            level_data['price'],
+            level_data['quantity'],
+            level_data['orders']
+        ))
+    
+    # If buffer reaches batch size, insert to database
+    if len(db_batch_buffer) >= BATCH_SIZE:
+        insert_depth_levels_batch(db_batch_buffer)
+        db_batch_buffer = []
 
 def parse_response_header_200depth(data):
     """Parse 12-byte response header for 200-depth"""
@@ -226,12 +322,20 @@ def on_message(ws, message):
             if bid_depth and ask_depth:
                 snapshot = analyze_depth_snapshot(bid_depth, ask_depth)
                 if snapshot:
+                    # Save to CSV (aggregates only)
                     save_snapshot_to_csv(snapshot)
                     depth_snapshots.append(snapshot)
                     
+                    # Save full depth to database
+                    save_depth_to_db(
+                        snapshot['timestamp'],
+                        bid_depth['levels'],
+                        ask_depth['levels']
+                    )
+                    
                     # Print summary every 100 snapshots
                     if snapshot_count % 100 == 0:
-                        print(f"[{snapshot['timestamp'].strftime('%H:%M:%S')}] Snapshots: {snapshot_count}, Bid: ₹{snapshot['best_bid']:,.2f}, Ask: ₹{snapshot['best_ask']:,.2f}, Spread: ₹{snapshot['spread']:.2f}, Imbalance: {snapshot['imbalance_ratio']:.2f}")
+                        print(f"[{snapshot['timestamp'].strftime('%H:%M:%S')}] Snapshots: {snapshot_count}, Bid: ₹{snapshot['best_bid']:,.2f}, Ask: ₹{snapshot['best_ask']:,.2f}, Spread: ₹{snapshot['spread']:.2f}, Imbalance: {snapshot['imbalance_ratio']:.2f}, DB Buffer: {len(db_batch_buffer)}")
             return
         
         # Otherwise parse as separate messages with response codes
@@ -259,12 +363,20 @@ def on_message(ws, message):
         if pending_bid and pending_ask:
             snapshot = analyze_depth_snapshot(pending_bid, pending_ask)
             if snapshot:
+                # Save to CSV (aggregates only)
                 save_snapshot_to_csv(snapshot)
                 depth_snapshots.append(snapshot)
                 
+                # Save full depth to database
+                save_depth_to_db(
+                    snapshot['timestamp'],
+                    pending_bid['levels'],
+                    pending_ask['levels']
+                )
+                
                 # Print summary every 100 snapshots
                 if snapshot_count % 100 == 0:
-                    print(f"[{snapshot['timestamp'].strftime('%H:%M:%S')}] Snapshots: {snapshot_count}, Bid: ₹{snapshot['best_bid']:,.2f}, Ask: ₹{snapshot['best_ask']:,.2f}, Spread: ₹{snapshot['spread']:.2f}, Imbalance: {snapshot['imbalance_ratio']:.2f}")
+                    print(f"[{snapshot['timestamp'].strftime('%H:%M:%S')}] Snapshots: {snapshot_count}, Bid: ₹{snapshot['best_bid']:,.2f}, Ask: ₹{snapshot['best_ask']:,.2f}, Spread: ₹{snapshot['spread']:.2f}, Imbalance: {snapshot['imbalance_ratio']:.2f}, DB Buffer: {len(db_batch_buffer)}")
             
             # Reset buffers
             pending_bid = None
@@ -284,6 +396,19 @@ def on_error(ws, error):
 
 def on_close(ws, close_status_code, close_msg):
     """Handle WebSocket close"""
+    global db_batch_buffer, db_conn
+    
+    # Flush any remaining buffer to database
+    if db_batch_buffer:
+        print(f"\nFlushing remaining {len(db_batch_buffer)} records to database...")
+        insert_depth_levels_batch(db_batch_buffer)
+        db_batch_buffer = []
+    
+    # Close database connection
+    if db_conn:
+        db_conn.close()
+        print("✓ Database connection closed")
+    
     print(f"\n{'='*80}")
     print(f"WebSocket Connection Closed")
     print(f"Total snapshots captured: {snapshot_count}")
@@ -291,6 +416,7 @@ def on_close(ws, close_status_code, close_msg):
         elapsed = time.time() - start_time
         print(f"Session duration: {elapsed:.1f} seconds")
     print(f"Data saved to: {csv_file}")
+    print(f"Data saved to database: depth_levels_200 table")
     print(f"{'='*80}")
 
 def on_open(ws):
@@ -300,6 +426,7 @@ def on_open(ws):
     print(f"Instrument: NIFTY Futures (Security ID: {SECURITY_ID})")
     print(f"Time: {datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S IST')}")
     print(f"Subscribing to 200-level market depth...")
+    print(f"Database: {DB_HOST}:{DB_PORT}/{DB_NAME}")
     print(f"{'='*80}\n")
     
     # Subscribe to 200-depth (request code 23)
@@ -320,12 +447,22 @@ def start_websocket():
     """Start WebSocket connection"""
     global ws
     
+    # Connect to database first
+    print(f"\n{'='*80}")
+    print(f"DHAN 200-DEPTH API WebSocket Client")
+    print(f"Connecting to database...")
+    print(f"{'='*80}")
+    
+    connect_db()
+    
+    if not db_conn:
+        print("✗ Failed to connect to database. Exiting...")
+        return
+    
     # Build WebSocket URL for 200-depth
     ws_url = f"wss://full-depth-api.dhan.co/twohundreddepth?token={ACCESS_TOKEN}&clientId={CLIENT_ID}&authType=2"
     
-    print(f"\n{'='*80}")
-    print(f"DHAN 200-DEPTH API WebSocket Client")
-    print(f"Starting connection...")
+    print(f"\nStarting WebSocket connection...")
     print(f"{'='*80}")
     
     # Create WebSocket connection
