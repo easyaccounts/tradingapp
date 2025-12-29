@@ -54,7 +54,7 @@ def load_instruments_cache(database_url: str, redis_client: Optional[redis.Redis
                     trading_symbol=row[1],
                     exchange=row[2],
                     instrument_type=row[4],
-                    expiry=row[6],
+                    expiry=row[6].isoformat() if row[6] else None,
                     strike=float(row[7]) if row[7] else None,
                     lot_size=int(row[9]) if row[9] else None,
                     tick_size=float(row[8]) if row[8] else None
