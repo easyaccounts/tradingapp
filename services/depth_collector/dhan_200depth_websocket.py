@@ -61,6 +61,62 @@ def get_db_connection():
                 print(f"✗ Failed to connect to database after {max_retries} attempts")
                 raise
 
+# Global buffer for batch inserts of 200 levels
+depth_levels_buffer = []
+BATCH_SIZE = 400  # 200 bids + 200 asks per snapshot
+
+def insert_depth_levels_batch(cursor, records):
+    """Batch insert depth levels with conflict handling"""
+    from psycopg2.extras import execute_batch
+    
+    insert_query = """
+        INSERT INTO depth_levels_200 (time, security_id, side, level_num, price, quantity, orders)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (time, security_id, side, level_num) DO UPDATE SET
+            price = EXCLUDED.price,
+            quantity = EXCLUDED.quantity,
+            orders = EXCLUDED.orders
+    """
+    
+    try:
+        execute_batch(cursor, insert_query, records, page_size=400)
+        print(f"✓ Inserted {len(records)} depth level records")
+    except Exception as e:
+        print(f"✗ Error in batch insert: {e}")
+
+def save_depth_levels_to_db(cursor, bid_depth, ask_depth, timestamp_utc, security_id):
+    """Save individual 200 bid and 200 ask levels to database with batching"""
+    global depth_levels_buffer
+    
+    # Add all bid levels to buffer
+    for i, level in enumerate(bid_depth, start=1):
+        depth_levels_buffer.append((
+            timestamp_utc,
+            int(security_id),
+            'BID',
+            i,
+            level['price'],
+            level['quantity'],
+            level['orders']
+        ))
+    
+    # Add all ask levels to buffer
+    for i, level in enumerate(ask_depth, start=1):
+        depth_levels_buffer.append((
+            timestamp_utc,
+            int(security_id),
+            'ASK',
+            i,
+            level['price'],
+            level['quantity'],
+            level['orders']
+        ))
+    
+    # If buffer reaches batch size, insert
+    if len(depth_levels_buffer) >= BATCH_SIZE:
+        insert_depth_levels_batch(cursor, depth_levels_buffer)
+        depth_levels_buffer.clear()
+
 def parse_response_header_200depth(data):
     """Parse 12-byte response header for 200-depth"""
     if len(data) < 12:
@@ -260,7 +316,7 @@ def on_open(ws):
 
 def on_message(ws, message):
     """Process incoming WebSocket message"""
-    global snapshot_count
+    global snapshot_count, db_cursor
     
     try:
         if isinstance(message, bytes):
@@ -273,7 +329,16 @@ def on_message(ws, message):
                     snapshot = analyze_depth_snapshot(bid_depth, ask_depth)
                     
                     if snapshot:
+                        # Use current timestamp in IST (converted to UTC for storage)
+                        timestamp_ist = datetime.now(ist)
+                        timestamp_utc = timestamp_ist.astimezone(pytz.UTC)
+                        
+                        # Save aggregated snapshot (existing functionality)
                         save_snapshot_to_db(snapshot)
+                        
+                        # Save individual 200 levels (new functionality)
+                        save_depth_levels_to_db(db_cursor, bid_depth, ask_depth, timestamp_utc, int(SECURITY_ID))
+                        
                         snapshot_count += 1
                         
                         # Print progress every 100 snapshots
@@ -299,7 +364,13 @@ def on_error(ws, error):
 
 def on_close(ws, close_status_code, close_msg):
     """Handle WebSocket connection close"""
-    global start_time, snapshot_count, db_conn
+    global start_time, snapshot_count, db_conn, db_cursor, depth_levels_buffer
+    
+    # Flush any remaining depth levels in buffer
+    if depth_levels_buffer and db_cursor:
+        print(f"Flushing remaining {len(depth_levels_buffer)} depth level records...")
+        insert_depth_levels_batch(db_cursor, depth_levels_buffer)
+        depth_levels_buffer.clear()
     
     if start_time:
         duration = time.time() - start_time
@@ -311,7 +382,7 @@ def on_close(ws, close_status_code, close_msg):
     print("WebSocket Connection Closed")
     print(f"Total snapshots captured: {snapshot_count}")
     print(f"Session duration: {duration:.1f} seconds")
-    print(f"Data saved to database: depth_200_snapshots")
+    print(f"Data saved to database: depth_200_snapshots (aggregates) + depth_levels_200 (individual levels)")
     print("=" * 80)
     
     # Close database connection
