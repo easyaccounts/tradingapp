@@ -1,0 +1,371 @@
+import websocket
+import json
+import struct
+import os
+import psycopg2
+from datetime import datetime
+import pytz
+import time
+
+# Configuration from environment variables
+ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN')
+CLIENT_ID = os.getenv('DHAN_CLIENT_ID')
+SECURITY_ID = os.getenv('SECURITY_ID', '49543')  # December NIFTY futures
+INSTRUMENT_NAME = os.getenv('INSTRUMENT_NAME', 'NIFTY DEC 2025 FUT')
+
+# Database configuration
+DB_HOST = os.getenv('DB_HOST', 'postgres')
+DB_PORT = os.getenv('DB_PORT', '5432')
+DB_NAME = os.getenv('DB_NAME', 'tradingdb')
+DB_USER = os.getenv('DB_USER', 'tradinguser')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+
+ist = pytz.timezone('Asia/Kolkata')
+
+# Feed Response Codes
+RESPONSE_BID_DEPTH = 41
+RESPONSE_ASK_DEPTH = 51
+RESPONSE_DISCONNECT = 50
+
+# Global variables
+ws = None
+db_conn = None
+db_cursor = None
+snapshot_count = 0
+start_time = None
+
+def get_db_connection():
+    """Establish database connection with retry logic"""
+    max_retries = 5
+    retry_delay = 5
+    
+    for attempt in range(max_retries):
+        try:
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                database=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                connect_timeout=10
+            )
+            conn.autocommit = True
+            print(f"✓ Database connected: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+            return conn
+        except psycopg2.OperationalError as e:
+            if attempt < max_retries - 1:
+                print(f"Database connection failed (attempt {attempt+1}/{max_retries}): {e}")
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print(f"✗ Failed to connect to database after {max_retries} attempts")
+                raise
+
+def parse_response_header_200depth(data):
+    """Parse 12-byte response header for 200-depth"""
+    if len(data) < 12:
+        return None
+    
+    message_length = struct.unpack('<H', data[0:2])[0]
+    response_code = data[2]
+    exchange_segment = data[3]
+    security_id = struct.unpack('<I', data[4:8])[0]
+    num_rows = struct.unpack('<I', data[8:12])[0]
+    
+    return {
+        'message_length': message_length,
+        'response_code': response_code,
+        'exchange_segment': exchange_segment,
+        'security_id': security_id,
+        'num_rows': num_rows
+    }
+
+def parse_depth_packet_200(data):
+    """Parse 200-level depth packet (bid or ask)"""
+    header = parse_response_header_200depth(data[:12])
+    if not header or header['num_rows'] == 0:
+        return []
+    
+    depth_data = []
+    offset = 12
+    
+    for i in range(min(header['num_rows'], 200)):
+        if offset + 16 > len(data):
+            break
+        
+        price = struct.unpack('<d', data[offset:offset+8])[0]
+        quantity = struct.unpack('<I', data[offset+8:offset+12])[0]
+        orders = struct.unpack('<I', data[offset+12:offset+16])[0]
+        
+        depth_data.append({
+            'level': i + 1,
+            'price': price,
+            'quantity': quantity,
+            'orders': orders
+        })
+        
+        offset += 16
+    
+    return depth_data
+
+def analyze_depth_snapshot(bid_depth, ask_depth):
+    """Calculate aggregated metrics from 200-level depth"""
+    if not bid_depth or not ask_depth:
+        return None
+    
+    # Top of book
+    best_bid = bid_depth[0]['price']
+    best_ask = ask_depth[0]['price']
+    spread = best_ask - best_bid
+    
+    # Total quantities and orders
+    total_bid_qty = sum(level['quantity'] for level in bid_depth)
+    total_ask_qty = sum(level['quantity'] for level in ask_depth)
+    total_bid_orders = sum(level['orders'] for level in bid_depth)
+    total_ask_orders = sum(level['orders'] for level in ask_depth)
+    
+    # Imbalance ratio
+    imbalance_ratio = total_bid_qty / total_ask_qty if total_ask_qty > 0 else 0
+    
+    # Average order sizes
+    avg_bid_order_size = total_bid_qty / total_bid_orders if total_bid_orders > 0 else 0
+    avg_ask_order_size = total_ask_qty / total_ask_orders if total_ask_orders > 0 else 0
+    
+    # Volume-weighted average prices
+    bid_vwap = sum(level['price'] * level['quantity'] for level in bid_depth) / total_bid_qty if total_bid_qty > 0 else 0
+    ask_vwap = sum(level['price'] * level['quantity'] for level in ask_depth) / total_ask_qty if total_ask_qty > 0 else 0
+    
+    # 50% volume concentration levels
+    bid_50pct_qty = total_bid_qty * 0.5
+    ask_50pct_qty = total_ask_qty * 0.5
+    
+    bid_cumulative = 0
+    bid_50pct_level = 0
+    for level in bid_depth:
+        bid_cumulative += level['quantity']
+        bid_50pct_level += 1
+        if bid_cumulative >= bid_50pct_qty:
+            break
+    
+    ask_cumulative = 0
+    ask_50pct_level = 0
+    for level in ask_depth:
+        ask_cumulative += level['quantity']
+        ask_50pct_level += 1
+        if ask_cumulative >= ask_50pct_qty:
+            break
+    
+    return {
+        'best_bid': round(best_bid, 2),
+        'best_ask': round(best_ask, 2),
+        'spread': round(spread, 2),
+        'total_bid_qty': total_bid_qty,
+        'total_ask_qty': total_ask_qty,
+        'total_bid_orders': total_bid_orders,
+        'total_ask_orders': total_ask_orders,
+        'imbalance_ratio': round(imbalance_ratio, 4),
+        'avg_bid_order_size': round(avg_bid_order_size, 2),
+        'avg_ask_order_size': round(avg_ask_order_size, 2),
+        'bid_vwap': round(bid_vwap, 2),
+        'ask_vwap': round(ask_vwap, 2),
+        'bid_50pct_level': bid_50pct_level,
+        'ask_50pct_level': ask_50pct_level
+    }
+
+def save_snapshot_to_db(snapshot):
+    """Save aggregated snapshot to database"""
+    global db_cursor
+    
+    try:
+        # Use current timestamp in IST (converted to UTC for storage)
+        timestamp_ist = datetime.now(ist)
+        timestamp_utc = timestamp_ist.astimezone(pytz.UTC)
+        
+        insert_query = """
+            INSERT INTO depth_200_snapshots (
+                timestamp, security_id, instrument_name,
+                best_bid, best_ask, spread,
+                total_bid_qty, total_ask_qty,
+                total_bid_orders, total_ask_orders,
+                imbalance_ratio,
+                avg_bid_order_size, avg_ask_order_size,
+                bid_vwap, ask_vwap,
+                bid_50pct_level, ask_50pct_level
+            ) VALUES (
+                %s, %s, %s,
+                %s, %s, %s,
+                %s, %s,
+                %s, %s,
+                %s,
+                %s, %s,
+                %s, %s,
+                %s, %s
+            )
+        """
+        
+        db_cursor.execute(insert_query, (
+            timestamp_utc,
+            int(SECURITY_ID),
+            INSTRUMENT_NAME,
+            snapshot['best_bid'],
+            snapshot['best_ask'],
+            snapshot['spread'],
+            snapshot['total_bid_qty'],
+            snapshot['total_ask_qty'],
+            snapshot['total_bid_orders'],
+            snapshot['total_ask_orders'],
+            snapshot['imbalance_ratio'],
+            snapshot['avg_bid_order_size'],
+            snapshot['avg_ask_order_size'],
+            snapshot['bid_vwap'],
+            snapshot['ask_vwap'],
+            snapshot['bid_50pct_level'],
+            snapshot['ask_50pct_level']
+        ))
+        
+    except Exception as e:
+        print(f"Error saving to database: {e}")
+        # Try to reconnect
+        try:
+            global db_conn
+            db_conn = get_db_connection()
+            db_cursor = db_conn.cursor()
+        except Exception as reconnect_error:
+            print(f"Failed to reconnect to database: {reconnect_error}")
+
+def on_open(ws):
+    """WebSocket connection opened"""
+    global start_time
+    start_time = time.time()
+    
+    print("=" * 80)
+    print("DHAN 200-DEPTH WebSocket Connected")
+    print(f"Instrument: {INSTRUMENT_NAME} (Security ID: {SECURITY_ID})")
+    print(f"Time: {datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')} IST")
+    print(f"Database: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+    print("Subscribing to 200-level market depth...")
+    print("=" * 80)
+    print()
+    
+    subscription_request = {
+        'RequestCode': 23,
+        'ExchangeSegment': 'NSE_FNO',
+        'SecurityId': SECURITY_ID
+    }
+    
+    ws.send(json.dumps(subscription_request))
+    print(f"Subscription request sent: {subscription_request}")
+    print("Waiting for depth data... (Press Ctrl+C to stop)")
+    print()
+
+def on_message(ws, message):
+    """Process incoming WebSocket message"""
+    global snapshot_count
+    
+    try:
+        if isinstance(message, bytes):
+            # Check for combined bid+ask packet (6424 bytes)
+            if len(message) == 6424:
+                bid_depth = parse_depth_packet_200(message[:3212])
+                ask_depth = parse_depth_packet_200(message[3212:])
+                
+                if bid_depth and ask_depth:
+                    snapshot = analyze_depth_snapshot(bid_depth, ask_depth)
+                    
+                    if snapshot:
+                        save_snapshot_to_db(snapshot)
+                        snapshot_count += 1
+                        
+                        # Print progress every 100 snapshots
+                        if snapshot_count % 100 == 0:
+                            timestamp_str = datetime.now(ist).strftime('%H:%M:%S')
+                            print(f"[{timestamp_str}] Snapshots: {snapshot_count}, "
+                                  f"Bid: ₹{snapshot['best_bid']:,.2f}, "
+                                  f"Ask: ₹{snapshot['best_ask']:,.2f}, "
+                                  f"Spread: ₹{snapshot['spread']:.2f}, "
+                                  f"Imbalance: {snapshot['imbalance_ratio']:.2f}")
+            
+            # Check for disconnect
+            elif len(message) >= 3 and message[2] == RESPONSE_DISCONNECT:
+                print("Received disconnect signal from server")
+                ws.close()
+        
+    except Exception as e:
+        print(f"Error parsing message: {e}")
+
+def on_error(ws, error):
+    """Handle WebSocket errors"""
+    print(f"WebSocket Error: {error}")
+
+def on_close(ws, close_status_code, close_msg):
+    """Handle WebSocket connection close"""
+    global start_time, snapshot_count, db_conn
+    
+    if start_time:
+        duration = time.time() - start_time
+    else:
+        duration = 0
+    
+    print()
+    print("=" * 80)
+    print("WebSocket Connection Closed")
+    print(f"Total snapshots captured: {snapshot_count}")
+    print(f"Session duration: {duration:.1f} seconds")
+    print(f"Data saved to database: depth_200_snapshots")
+    print("=" * 80)
+    
+    # Close database connection
+    if db_conn:
+        db_conn.close()
+        print("Database connection closed")
+
+def main():
+    """Main function to start WebSocket connection"""
+    global ws, db_conn, db_cursor
+    
+    # Validate configuration
+    if not ACCESS_TOKEN or not CLIENT_ID:
+        print("ERROR: DHAN_ACCESS_TOKEN and DHAN_CLIENT_ID must be set")
+        return
+    
+    if not DB_PASSWORD:
+        print("ERROR: DB_PASSWORD must be set")
+        return
+    
+    # Connect to database
+    try:
+        db_conn = get_db_connection()
+        db_cursor = db_conn.cursor()
+    except Exception as e:
+        print(f"Failed to connect to database: {e}")
+        return
+    
+    # WebSocket URL
+    ws_url = (
+        f"wss://full-depth-api.dhan.co/twohundreddepth?"
+        f"token={ACCESS_TOKEN}&"
+        f"clientId={CLIENT_ID}&"
+        f"authType=2"
+    )
+    
+    print()
+    print("=" * 80)
+    print("DHAN 200-DEPTH API WebSocket Client")
+    print("Starting connection...")
+    print("=" * 80)
+    print()
+    
+    # Create and start WebSocket connection
+    ws = websocket.WebSocketApp(
+        ws_url,
+        on_open=on_open,
+        on_message=on_message,
+        on_error=on_error,
+        on_close=on_close
+    )
+    
+    # Run forever (blocking)
+    ws.run_forever()
+
+if __name__ == "__main__":
+    main()

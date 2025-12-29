@@ -331,6 +331,29 @@ services:
     networks:
       - tradingapp-network
 
+  # Dhan 200-Depth Collector - Streams institutional-grade orderbook data
+  depth-collector:
+    build:
+      context: ./services/depth_collector
+      dockerfile: Dockerfile
+    container_name: tradingapp-depth-collector
+    environment:
+      DHAN_ACCESS_TOKEN: ${DHAN_ACCESS_TOKEN}
+      DHAN_CLIENT_ID: ${DHAN_CLIENT_ID}
+      SECURITY_ID: ${DHAN_SECURITY_ID:-49543}
+      INSTRUMENT_NAME: ${DHAN_INSTRUMENT_NAME:-NIFTY DEC 2025 FUT}
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradingapp-network
+
 volumes:
   pgdata:
     driver: local
