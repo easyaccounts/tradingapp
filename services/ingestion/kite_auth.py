@@ -10,8 +10,9 @@ from typing import Optional
 
 logger = structlog.get_logger()
 
-REDIS_TOKEN_KEY = "kite_access_token"
+REDIS_TOKEN_KEY = "access_token"
 TOKEN_FILE_PATH = "/app/data/access_token.txt"
+TOKEN_EXPIRY_SECONDS = 86400  # 24 hours
 
 
 def read_token_from_file() -> Optional[str]:
@@ -30,6 +31,7 @@ def read_token_from_file() -> Optional[str]:
 def get_access_token(redis_url: str) -> str:
     """
     Retrieve Kite access token from file (primary) or Redis (fallback)
+    Syncs token from file to Redis if Redis is missing it
     
     Args:
         redis_url: Redis connection URL
@@ -49,6 +51,32 @@ def get_access_token(redis_url: str) -> str:
                 "access_token_retrieved_from_file",
                 token_length=len(token)
             )
+            
+            # Sync to Redis if not present or expired
+            try:
+                redis_client = redis.from_url(redis_url, decode_responses=True)
+                redis_token = redis_client.get(REDIS_TOKEN_KEY)
+                
+                if not redis_token:
+                    # Token exists in file but not in Redis - sync it
+                    redis_client.setex(
+                        REDIS_TOKEN_KEY,
+                        TOKEN_EXPIRY_SECONDS,
+                        token
+                    )
+                    logger.info(
+                        "token_synced_to_redis",
+                        message="Token from file synced to Redis with 24h TTL"
+                    )
+                
+                redis_client.close()
+            except Exception as redis_error:
+                logger.warning(
+                    "redis_sync_failed",
+                    error=str(redis_error),
+                    message="Token retrieved from file but Redis sync failed"
+                )
+            
             return token
         
         # Fallback to Redis
@@ -82,6 +110,15 @@ def get_access_token(redis_url: str) -> str:
                 message="Token will expire soon. Please re-authenticate."
             )
         
+        # Save token from Redis to file for persistence
+        try:
+            os.makedirs(os.path.dirname(TOKEN_FILE_PATH), exist_ok=True)
+            with open(TOKEN_FILE_PATH, 'w') as f:
+                f.write(token)
+            logger.info("token_saved_to_file_from_redis")
+        except Exception as file_error:
+            logger.warning("failed_to_save_token_to_file", error=str(file_error))
+        
         redis_client.close()
         return token
     
@@ -96,29 +133,72 @@ def get_access_token(redis_url: str) -> str:
 def check_token_validity(redis_url: str) -> bool:
     """
     Check if access token exists and is valid
+    Checks file first (primary), then Redis (fallback)
+    Syncs token to Redis if found in file but not in Redis
     
     Args:
         redis_url: Redis connection URL
     
     Returns:
-        bool: True if token exists and has TTL > 0
+        bool: True if token exists in file or Redis
     """
     try:
+        # Check file first (primary source)
+        token = read_token_from_file()
+        
+        if token:
+            logger.info("token_check_passed", source="file")
+            
+            # Sync to Redis if not present
+            try:
+                redis_client = redis.from_url(redis_url, decode_responses=True)
+                redis_token = redis_client.get(REDIS_TOKEN_KEY)
+                
+                if not redis_token:
+                    redis_client.setex(
+                        REDIS_TOKEN_KEY,
+                        TOKEN_EXPIRY_SECONDS,
+                        token
+                    )
+                    logger.info("token_synced_to_redis_from_validation")
+                
+                redis_client.close()
+            except Exception as redis_error:
+                logger.warning(
+                    "redis_sync_during_validation_failed",
+                    error=str(redis_error)
+                )
+            
+            return True
+        
+        # Fallback to Redis check
         redis_client = redis.from_url(redis_url, decode_responses=True)
         
-        # Check if token exists
+        # Check if token exists in Redis
         token = redis_client.get(REDIS_TOKEN_KEY)
         if not token:
-            logger.warning("token_check_failed", reason="token_not_found")
+            logger.warning("token_check_failed", reason="token_not_found_in_file_or_redis")
+            redis_client.close()
             return False
         
         # Check TTL
         ttl = redis_client.ttl(REDIS_TOKEN_KEY)
         if ttl <= 0:
-            logger.warning("token_check_failed", reason="token_expired")
+            logger.warning("token_check_failed", reason="redis_token_expired")
+            redis_client.close()
             return False
         
-        logger.info("token_check_passed", ttl_seconds=ttl)
+        logger.info("token_check_passed", source="redis", ttl_seconds=ttl)
+        
+        # Save to file for persistence
+        try:
+            os.makedirs(os.path.dirname(TOKEN_FILE_PATH), exist_ok=True)
+            with open(TOKEN_FILE_PATH, 'w') as f:
+                f.write(token)
+            logger.info("token_saved_to_file_from_redis_validation")
+        except Exception as file_error:
+            logger.warning("failed_to_save_token_to_file", error=str(file_error))
+        
         redis_client.close()
         return True
     

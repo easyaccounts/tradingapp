@@ -37,7 +37,7 @@ if not KITE_API_KEY or not KITE_API_SECRET:
 kite = KiteConnect(api_key=KITE_API_KEY)
 
 # Constants
-REDIS_TOKEN_KEY = "kite_access_token"
+REDIS_TOKEN_KEY = "access_token"
 TOKEN_EXPIRY_SECONDS = 86400  # 24 hours
 
 # Token file path (persisted via volume mount)
@@ -193,6 +193,17 @@ async def check_auth_status():
             # If found in Redis, save to file for persistence
             if token:
                 write_token_to_file(token)
+        else:
+            # Token exists in file - ensure it's synced to Redis with proper TTL
+            redis_token = redis_client.get(REDIS_TOKEN_KEY)
+            if not redis_token:
+                # Token in file but not in Redis - sync it
+                redis_client.setex(
+                    REDIS_TOKEN_KEY,
+                    TOKEN_EXPIRY_SECONDS,
+                    token
+                )
+                logger.info("Token from file synced to Redis with 24h TTL")
         
         if not token:
             return {
@@ -204,6 +215,16 @@ async def check_auth_status():
         # Get remaining TTL from Redis (if available)
         ttl = redis_client.ttl(REDIS_TOKEN_KEY)
         user_id = redis_client.get("kite_user_profile")
+        
+        # If TTL is -1 (no expiry set) or -2 (key doesn't exist), set it
+        if ttl < 0:
+            redis_client.setex(
+                REDIS_TOKEN_KEY,
+                TOKEN_EXPIRY_SECONDS,
+                token
+            )
+            ttl = TOKEN_EXPIRY_SECONDS
+            logger.info("Redis token TTL reset to 24h")
         
         # Check if token is about to expire (< 1 hour)
         if ttl < 3600:
