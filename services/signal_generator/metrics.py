@@ -157,19 +157,19 @@ def calculate_pressure(snapshot_buffer: deque, current_price: float) -> Dict:
     imbalance_30s = calc_imbalance_window(
         list(snapshot_buffer)[-150:], 
         current_price, 
-        top_n=20
+        top_n=40
     )
     
     imbalance_60s = calc_imbalance_window(
         list(snapshot_buffer)[-300:] if len(snapshot_buffer) >= 300 else list(snapshot_buffer), 
         current_price, 
-        top_n=20
+        top_n=40
     )
     
     imbalance_120s = calc_imbalance_window(
         list(snapshot_buffer)[-600:] if len(snapshot_buffer) >= 600 else list(snapshot_buffer), 
         current_price, 
-        top_n=20
+        top_n=40
     )
     
     # Determine market state based on primary (60s) window
@@ -189,7 +189,7 @@ def calculate_pressure(snapshot_buffer: deque, current_price: float) -> Dict:
     }
 
 
-def calc_imbalance_window(snapshots: List[dict], current_price: float, top_n: int = 20) -> float:
+def calc_imbalance_window(snapshots: List[dict], current_price: float, top_n: int = 40) -> float:
     """Calculate imbalance from top N levels near current price"""
     if not snapshots:
         return 0.0

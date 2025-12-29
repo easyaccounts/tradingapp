@@ -47,9 +47,9 @@ class SlackAlerter:
                 return False
         
         elif signal_type == 'pressure_change':
-            # Only alert on strong pressure (0.4+ imbalance)
+            # Only alert on strong pressure (0.6+ imbalance)
             primary = data.get('pressure_60s', 0)
-            if abs(primary) < 0.4:
+            if abs(primary) < 0.6:
                 return False
         
         return True
