@@ -70,8 +70,8 @@ def calculate_metrics(df):
     df['bid_orders_change'] = df['total_bid_orders'].diff()
     df['ask_orders_change'] = df['total_ask_orders'].diff()
     
-    # Price movements (future returns)
-    for horizon in [1, 5, 10, 20, 50]:
+    # Price movements (future returns) - extended horizons for bigger moves
+    for horizon in [1, 5, 10, 20, 50, 100, 200, 500]:
         df[f'return_{horizon}'] = df['mid_price'].diff(horizon).shift(-horizon)
     
     print(f"✓ Calculated metrics")
@@ -95,10 +95,10 @@ def analyze_order_count_correlation(df):
         'order_size_ratio'
     ]
     
-    horizons = [1, 5, 10, 20, 50]
+    horizons = [1, 5, 10, 20, 50, 100, 200, 500]
     
-    print(f"{'Metric':<30} {'1-Tick':<10} {'5-Tick':<10} {'10-Tick':<10} {'20-Tick':<10} {'50-Tick':<10}")
-    print("-"*100)
+    print(f"{'Metric':<30} {'1-Tick':<10} {'5-Tick':<10} {'10-Tick':<10} {'20-Tick':<10} {'50-Tick':<10} {'100-Tick':<10} {'200-Tick':<10} {'500-Tick':<10}")
+    print("-"*130)
     
     for metric in metrics:
         correlations = []
@@ -106,7 +106,7 @@ def analyze_order_count_correlation(df):
             corr = df[[metric, f'return_{h}']].corr().iloc[0, 1]
             correlations.append(f"{corr:+.4f}" if pd.notna(corr) else "N/A")
         
-        print(f"{metric:<30} {correlations[0]:<10} {correlations[1]:<10} {correlations[2]:<10} {correlations[3]:<10} {correlations[4]:<10}")
+        print(f"{metric:<30} {correlations[0]:<10} {correlations[1]:<10} {correlations[2]:<10} {correlations[3]:<10} {correlations[4]:<10} {correlations[5]:<10} {correlations[6]:<10} {correlations[7]:<10}")
     
     print()
 
@@ -134,6 +134,9 @@ def analyze_order_imbalance_quintiles(df):
         'return_10': 'mean',
         'return_20': 'mean',
         'return_50': 'mean',
+        'return_100': 'mean',
+        'return_200': 'mean',
+        'return_500': 'mean',
         'order_count_imbalance': ['mean', 'min', 'max'],
         'mid_price': 'count'
     }).round(4)
@@ -177,11 +180,14 @@ def analyze_order_surges(df):
     
     if len(bid_surges) > 0:
         print("Bid Order Surges - Future Returns:")
-        print(f"  1-tick:  {bid_surges['return_1'].mean():+.4f}")
-        print(f"  5-tick:  {bid_surges['return_5'].mean():+.4f}")
-        print(f"  10-tick: {bid_surges['return_10'].mean():+.4f}")
-        print(f"  20-tick: {bid_surges['return_20'].mean():+.4f}")
-        print(f"  50-tick: {bid_surges['return_50'].mean():+.4f}")
+        print(f"  1-tick:   {bid_surges['return_1'].mean():+.4f}")
+        print(f"  5-tick:   {bid_surges['return_5'].mean():+.4f}")
+        print(f"  10-tick:  {bid_surges['return_10'].mean():+.4f}")
+        print(f"  20-tick:  {bid_surges['return_20'].mean():+.4f}")
+        print(f"  50-tick:  {bid_surges['return_50'].mean():+.4f}")
+        print(f"  100-tick: {bid_surges['return_100'].mean():+.4f}")
+        print(f"  200-tick: {bid_surges['return_200'].mean():+.4f}")
+        print(f"  500-tick: {bid_surges['return_500'].mean():+.4f}")
         print()
     
     print(f"Ask Order Surge Threshold: +{ask_order_threshold:.0f} orders")
@@ -190,11 +196,14 @@ def analyze_order_surges(df):
     
     if len(ask_surges) > 0:
         print("Ask Order Surges - Future Returns:")
-        print(f"  1-tick:  {ask_surges['return_1'].mean():+.4f}")
-        print(f"  5-tick:  {ask_surges['return_5'].mean():+.4f}")
-        print(f"  10-tick: {ask_surges['return_10'].mean():+.4f}")
-        print(f"  20-tick: {ask_surges['return_20'].mean():+.4f}")
-        print(f"  50-tick: {ask_surges['return_50'].mean():+.4f}")
+        print(f"  1-tick:   {ask_surges['return_1'].mean():+.4f}")
+        print(f"  5-tick:   {ask_surges['return_5'].mean():+.4f}")
+        print(f"  10-tick:  {ask_surges['return_10'].mean():+.4f}")
+        print(f"  20-tick:  {ask_surges['return_20'].mean():+.4f}")
+        print(f"  50-tick:  {ask_surges['return_50'].mean():+.4f}")
+        print(f"  100-tick: {ask_surges['return_100'].mean():+.4f}")
+        print(f"  200-tick: {ask_surges['return_200'].mean():+.4f}")
+        print(f"  500-tick: {ask_surges['return_500'].mean():+.4f}")
         print()
 
 def analyze_order_qty_divergence(df):
@@ -222,6 +231,9 @@ def analyze_order_qty_divergence(df):
         'return_10': 'mean',
         'return_20': 'mean',
         'return_50': 'mean',
+        'return_100': 'mean',
+        'return_200': 'mean',
+        'return_500': 'mean',
         'imbalance_divergence': 'mean',
         'mid_price': 'count'
     }).round(4)
@@ -302,6 +314,9 @@ def find_tradeable_setups(df):
     print(f"  Threshold: {df['order_count_imbalance'].quantile(0.95):.3f}")
     print(f"  Occurrences: {len(extreme_bid_heavy)}")
     print(f"  Avg 20-tick return: {extreme_bid_heavy['return_20'].mean():+.4f}")
+    print(f"  Avg 100-tick return: {extreme_bid_heavy['return_100'].mean():+.4f}")
+    print(f"  Avg 200-tick return: {extreme_bid_heavy['return_200'].mean():+.4f}")
+    print(f"  Avg 500-tick return: {extreme_bid_heavy['return_500'].mean():+.4f}")
     print(f"  Win rate (>0): {(extreme_bid_heavy['return_20'] > 0).sum() / len(extreme_bid_heavy) * 100:.1f}%")
     print()
     
@@ -309,6 +324,9 @@ def find_tradeable_setups(df):
     print(f"  Threshold: {df['order_count_imbalance'].quantile(0.05):.3f}")
     print(f"  Occurrences: {len(extreme_ask_heavy)}")
     print(f"  Avg 20-tick return: {extreme_ask_heavy['return_20'].mean():+.4f}")
+    print(f"  Avg 100-tick return: {extreme_ask_heavy['return_100'].mean():+.4f}")
+    print(f"  Avg 200-tick return: {extreme_ask_heavy['return_200'].mean():+.4f}")
+    print(f"  Avg 500-tick return: {extreme_ask_heavy['return_500'].mean():+.4f}")
     print(f"  Win rate (>0): {(extreme_ask_heavy['return_20'] > 0).sum() / len(extreme_ask_heavy) * 100:.1f}%")
     print()
     
@@ -325,6 +343,9 @@ def find_tradeable_setups(df):
     print(f"Occurrences: {len(order_surges_with_divergence)}")
     if len(order_surges_with_divergence) > 0:
         print(f"Avg 20-tick return: {order_surges_with_divergence['return_20'].mean():+.4f}")
+        print(f"Avg 100-tick return: {order_surges_with_divergence['return_100'].mean():+.4f}")
+        print(f"Avg 200-tick return: {order_surges_with_divergence['return_200'].mean():+.4f}")
+        print(f"Avg 500-tick return: {order_surges_with_divergence['return_500'].mean():+.4f}")
         print(f"Interpretation: Retail FOMO buying - contrarian SHORT?")
     print()
     
