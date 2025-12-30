@@ -135,8 +135,13 @@ def main():
                 access_token=access_token,
                 instruments=config.INSTRUMENTS,
                 publisher=publisher,
-            instruments_cache=instruments_cache,
-            slack_webhook_url=config.SLACK_WEBHOOK_URL
+                instruments_cache=instruments_cache,
+                slack_webhook_url=config.SLACK_WEBHOOK_URL
+            )
+            
+            logger.info("websocket_handler_initialized")
+            
+            # Start WebSocket (blocking call)
             logger.info("starting_websocket_connection")
             websocket_handler.start()
             
