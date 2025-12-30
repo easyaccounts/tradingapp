@@ -4,7 +4,7 @@ docker-compose stop api ingestion depth-collector frontend nginx
 docker-compose up -d api ingestion depth-collector frontend nginx
 docker-compose stop ingestion depth-collector signal-generator worker-1 worker-2 worker-3
 
-
+docker-compose stop signal-generator && docker-compose rm -f signal-generator && docker-compose build --no-cache signal-generator && docker-compose up -d signal-generator
 
 Auto-Start at 9:00 AM IST (3:30 AM UTC) Tomorrow:
 The following services will automatically start:
