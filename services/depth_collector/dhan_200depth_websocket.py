@@ -348,8 +348,26 @@ def on_message(ws, message):
     
     try:
         if isinstance(message, bytes):
+            # Log raw message details for debugging
+            print(f"[DEBUG] Received binary message: {len(message)} bytes")
+            
+            # Log first few bytes to inspect message type
+            if len(message) >= 12:
+                response_code = message[2]
+                print(f"[DEBUG] Response code: {response_code} (41=BID, 51=ASK, 50=DISCONNECT)")
+                
+                # Check for disconnect with reason code
+                if response_code == RESPONSE_DISCONNECT:
+                    if len(message) >= 14:
+                        disconnect_code = struct.unpack('<H', message[12:14])[0]
+                        print(f"[ERROR] Server sent disconnect code: {disconnect_code}")
+                        print(f"[ERROR] Check https://dhanhq.co/docs/v2/annexure/#data-api-error for meaning")
+                    ws.close()
+                    return
+            
             # Check for combined bid+ask packet (6424 bytes)
             if len(message) == 6424:
+                print(f"[DEBUG] Processing 200-level depth packet")
                 bid_depth = parse_depth_packet_200(message[:3212])
                 ask_depth = parse_depth_packet_200(message[3212:])
                 
@@ -391,14 +409,19 @@ def on_message(ws, message):
                               f"Bid: ₹{best_bid:,.2f}, "
                               f"Ask: ₹{best_ask:,.2f}, "
                               f"Spread: ₹{spread:.2f}")
-            
-            # Check for disconnect
-            elif len(message) >= 3 and message[2] == RESPONSE_DISCONNECT:
-                print("Received disconnect signal from server")
-                ws.close()
+            else:
+                print(f"[DEBUG] Unexpected message length: {len(message)} bytes (expected 6424 for 200-level)")
+                # Dump first 20 bytes in hex for analysis
+                hex_dump = ' '.join(f'{b:02x}' for b in message[:min(20, len(message))])
+                print(f"[DEBUG] First bytes (hex): {hex_dump}")
+        else:
+            # Text message (JSON response?)
+            print(f"[DEBUG] Received text message: {message}")
         
     except Exception as e:
         print(f"Error parsing message: {e}")
+        import traceback
+        traceback.print_exc()
 
 def on_error(ws, error):
     """Handle WebSocket errors"""
@@ -407,6 +430,8 @@ def on_error(ws, error):
 def on_close(ws, close_status_code, close_msg):
     """Handle WebSocket connection close"""
     global start_time, snapshot_count, db_conn, db_cursor, depth_levels_buffer
+    
+    print(f"[DEBUG] WebSocket closed - Status: {close_status_code}, Message: {close_msg}")
     
     # Flush any remaining depth levels in buffer
     if depth_levels_buffer and db_cursor:
