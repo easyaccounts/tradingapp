@@ -272,23 +272,6 @@ services:
     networks:
       - tradingapp-network
 
-  # Nginx - Reverse proxy and static file server
-  nginx:
-    image: nginx:alpine
-    container_name: tradingapp-nginx
-    volumes:
-      - ./config/nginx/default.conf:/etc/nginx/conf.d/default.conf
-      - ./services/frontend/public:/usr/share/nginx/html:ro
-      - ./ssl:/etc/nginx/ssl
-    extra_hosts:
-      - "api-host:host-gateway"
-    ports:
-      - "80:80"
-      - "443:443"
-    restart: unless-stopped
-    networks:
-      - tradingapp-network
-
   # Dhan 200-Depth Collector - Streams institutional-grade orderbook data
   depth-collector:
     build:
