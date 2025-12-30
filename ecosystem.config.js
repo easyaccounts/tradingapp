@@ -18,6 +18,7 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '500M',
+      env_file: '/opt/tradingapp/.env',
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp'
@@ -49,6 +50,7 @@ module.exports = {
       max_restarts: 5,
       min_uptime: '10s',
       restart_delay: 4000,
+      env_file: '/opt/tradingapp/.env',
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp'
@@ -77,6 +79,7 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '1G',
+      env_file: '/opt/tradingapp/.env',
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp',
@@ -106,6 +109,7 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '1G',
+      env_file: '/opt/tradingapp/.env',
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp',
@@ -135,6 +139,7 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '1G',
+      env_file: '/opt/tradingapp/.env',
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp',
@@ -167,6 +172,7 @@ module.exports = {
       max_restarts: 5,
       min_uptime: '10s',
       restart_delay: 4000,
+      env_file: '/opt/tradingapp/.env',
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp'
@@ -195,6 +201,7 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '500M',
+      env_file: '/opt/tradingapp/.env',
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp'
