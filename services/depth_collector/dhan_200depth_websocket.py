@@ -154,84 +154,71 @@ def save_depth_levels_to_db(cursor, bid_depth, ask_depth, timestamp_utc, securit
         depth_levels_buffer.clear()
 
 def parse_response_header_20depth(data):
-    """Parse 12-byte response header for 20-depth"""
+    """Parse 12-byte response header for 20-depth
+    
+    Per Dhan API docs: https://dhanhq.co/docs/v2/full-market-depth/#response-header
+    Bytes 1-2: int16 - Message Length
+    Byte 3: Response Code (41=BID, 51=ASK)
+    Byte 4: Exchange Segment
+    Bytes 5-8: int32 - Security ID
+    Bytes 9-12: uint32 - Message Sequence (to be ignored)
+    
+    NOTE: For 20-level depth, there are ALWAYS 20 levels (320 bytes data)
+    The "num_rows" field only exists in 200-level depth header!
+    """
     if len(data) < 12:
         return None
-    
-    # DEBUG: Print raw header bytes
-    print(f"[HEX] Header bytes: {data[:12].hex()}")
     
     message_length = struct.unpack('<H', data[0:2])[0]
     response_code = data[2]
     exchange_segment = data[3]
     security_id = struct.unpack('<I', data[4:8])[0]
-    num_rows = struct.unpack('<I', data[8:12])[0]
-    
-    print(f"[PARSE] msg_len={message_length}, code={response_code}, seg={exchange_segment}, sec_id={security_id}, num_rows={num_rows}")
+    message_sequence = struct.unpack('<I', data[8:12])[0]  # To be ignored
     
     return {
         'message_length': message_length,
         'response_code': response_code,
         'exchange_segment': exchange_segment,
         'security_id': security_id,
-        'num_rows': num_rows
+        'message_sequence': message_sequence  # Ignored, but keep for debugging
     }
 
 def parse_depth_packet_20(data):
-    """Parse 20-level depth packet (bid or ask)"""
+    """Parse 20-level depth packet (bid or ask)
+    
+    Per Dhan API: 20-level depth ALWAYS contains 20 levels (16 bytes each = 320 bytes data)
+    Header (12 bytes) + Data (320 bytes) = 332 bytes total per packet
+    """
     try:
         header = parse_response_header_20depth(data[:12])
         if not header:
             print(f"[ERROR] Failed to parse header from {len(data)} byte packet")
             return []
         
-        print(f"[DEBUG] Header: num_rows={header['num_rows']}, security_id={header['security_id']}")
-        
-        # Check if there's non-zero data after header (bytes 12-332)
-        data_section = data[12:]
-        non_zero_count = sum(1 for b in data_section if b != 0)
-        print(f"[DEBUG] Data section: {len(data_section)} bytes, {non_zero_count} non-zero bytes")
-        
-        if non_zero_count > 0:
-            # There IS data! Dump first 48 bytes (3 levels worth) to see structure
-            print(f"[HEX] First 48 data bytes: {data[12:60].hex()}")
-        
-        if header['num_rows'] == 0:
-            # Maybe num_rows isn't reliable - try parsing anyway if packet has data
-            if non_zero_count == 0:
-                print(f"[WARN] num_rows is 0 and no data in packet")
-                return []
-            else:
-                print(f"[INFO] num_rows=0 but packet has {non_zero_count} non-zero bytes - parsing anyway")
-                # Fall through to parse the data
-        
         depth_data = []
         offset = 12
         
-        # Calculate max levels based on available data (320 bytes / 16 per level = 20 max)
-        # Use num_rows if available, otherwise parse all available levels
-        max_levels_in_packet = (len(data) - 12) // 16  # How many 16-byte levels fit
-        levels_to_parse = header['num_rows'] if header['num_rows'] > 0 else min(max_levels_in_packet, DEPTH_LEVELS)
-        
-        for i in range(levels_to_parse):
+        # Always parse 20 levels (320 bytes / 16 bytes per level)
+        for i in range(DEPTH_LEVELS):
             if offset + 16 > len(data):
-                print(f"[WARN] Not enough data for level {i+1}, offset={offset}, len={len(data)}")
+                print(f"[WARN] Packet too short for level {i+1}, offset={offset}, len={len(data)}")
                 break
             
             price = struct.unpack('<d', data[offset:offset+8])[0]
             quantity = struct.unpack('<I', data[offset+8:offset+12])[0]
             orders = struct.unpack('<I', data[offset+12:offset+16])[0]
             
-            depth_data.append({
-                'level': i + 1,
-                'price': price,
-                'quantity': quantity,
-                'orders': orders
-            })
+            # Skip empty levels (price=0 means no order at this level)
+            if price > 0:
+                depth_data.append({
+                    'level': i + 1,
+                    'price': price,
+                    'quantity': quantity,
+                    'orders': orders
+                })
             
             offset += 16
         
-        print(f"[DEBUG] Parsed {len(depth_data)} levels successfully")
         return depth_data
         
     except Exception as e:
@@ -239,7 +226,6 @@ def parse_depth_packet_20(data):
         import traceback
         traceback.print_exc()
         return []
-    return depth_data
 
 def analyze_depth_snapshot(bid_depth, ask_depth):
     """Calculate aggregated metrics from 200-level depth"""
