@@ -7,7 +7,11 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/tradingapp
-ExecStart=/usr/bin/docker-compose up -d --build ingestion depth-collector signal-generator worker-1 worker-2 worker-3
+# Force restart services to pick up fresh tokens
+ExecStartPre=/usr/bin/docker-compose stop ingestion depth-collector signal-generator worker-1 worker-2 worker-3
+ExecStartPre=/usr/bin/docker-compose rm -f ingestion depth-collector signal-generator worker-1 worker-2 worker-3
+ExecStartPre=/usr/bin/docker-compose build ingestion depth-collector signal-generator worker-1 worker-2 worker-3
+ExecStart=/usr/bin/docker-compose up -d ingestion depth-collector signal-generator worker-1 worker-2 worker-3
 ExecStop=/usr/bin/docker-compose stop ingestion depth-collector signal-generator worker-1 worker-2 worker-3
 TimeoutStartSec=300
 TimeoutStopSec=60
