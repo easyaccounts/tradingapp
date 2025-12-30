@@ -187,9 +187,23 @@ def parse_depth_packet_20(data):
         
         print(f"[DEBUG] Header: num_rows={header['num_rows']}, security_id={header['security_id']}")
         
+        # Check if there's non-zero data after header (bytes 12-332)
+        data_section = data[12:]
+        non_zero_count = sum(1 for b in data_section if b != 0)
+        print(f"[DEBUG] Data section: {len(data_section)} bytes, {non_zero_count} non-zero bytes")
+        
+        if non_zero_count > 0:
+            # There IS data! Dump first 48 bytes (3 levels worth) to see structure
+            print(f"[HEX] First 48 data bytes: {data[12:60].hex()}")
+        
         if header['num_rows'] == 0:
-            print(f"[WARN] num_rows is 0, no depth data")
-            return []
+            # Maybe num_rows isn't reliable - try parsing anyway if packet has data
+            if non_zero_count == 0:
+                print(f"[WARN] num_rows is 0 and no data in packet")
+                return []
+            else:
+                print(f"[INFO] num_rows=0 but packet has {non_zero_count} non-zero bytes - parsing anyway")
+                # Fall through to parse the data
         
         depth_data = []
         offset = 12
