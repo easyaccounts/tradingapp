@@ -478,8 +478,12 @@ def generate_key_insights(conn, current_price, persistent_levels):
     supports = [l for l in persistent_levels if l['side'] == 'bid' and l['price'] < current_price]
     resistances = [l for l in persistent_levels if l['side'] == 'ask' and l['price'] > current_price]
     
-    nearest_support = max(supports, key=lambda x: x['price']) if supports else None
-    nearest_resistance = min(resistances, key=lambda x: x['price']) if resistances else None
+    # Sort by proximity to current price
+    supports.sort(key=lambda x: current_price - x['price'])  # Closest first
+    resistances.sort(key=lambda x: x['price'] - current_price)  # Closest first
+    
+    nearest_support = supports[0] if supports else None
+    nearest_resistance = resistances[0] if resistances else None
     
     # Get recent imbalance
     snapshots = get_snapshots(conn)
@@ -524,19 +528,39 @@ def generate_key_insights(conn, current_price, persistent_levels):
                     print(f"\n⚠️  WATCH: ₹{nearest_resistance['price']:.2f} resistance showing ABSORPTION ({change_pct:.0f}% decline) - Breakout likely")
         
         # Trade setup
-        if nearest_support and bias == "BULLISH":
-            entry = current_price + 2
+        if nearest_support and nearest_resistance and bias == "BULLISH":
+            entry = nearest_support['price'] + 3  # Enter above support
             stop = nearest_support['price'] - 5
-            target = nearest_resistance['price'] if nearest_resistance else current_price + 20
+            target = nearest_resistance['price']
             risk = entry - stop
             reward = target - entry
-            rr_ratio = reward / risk if risk > 0 else 0
             
-            print(f"\n✅ LONG SETUP:")
-            print(f"   Entry: Above ₹{entry:.2f}")
-            print(f"   Stop: ₹{stop:.2f} (Risk: {risk:.2f} points)")
-            print(f"   Target: ₹{target:.2f} (Reward: {reward:.2f} points)")
-            print(f"   Risk/Reward: 1:{rr_ratio:.1f}")
+            # Only show if setup makes sense (positive reward)
+            if reward > 0 and risk > 0:
+                rr_ratio = reward / risk
+                
+                print(f"\n✅ LONG SETUP:")
+                print(f"   Entry: Above ₹{entry:.2f} (above {nearest_support['price']:.2f} support)")
+                print(f"   Stop: ₹{stop:.2f} (Risk: {risk:.2f} points)")
+                print(f"   Target: ₹{target:.2f} (Reward: {reward:.2f} points)")
+                print(f"   Risk/Reward: 1:{rr_ratio:.1f}")
+        
+        elif nearest_support and nearest_resistance and bias == "BEARISH":
+            entry = nearest_resistance['price'] - 3  # Enter below resistance
+            stop = nearest_resistance['price'] + 5
+            target = nearest_support['price']
+            risk = stop - entry
+            reward = entry - target
+            
+            # Only show if setup makes sense
+            if reward > 0 and risk > 0:
+                rr_ratio = reward / risk
+                
+                print(f"\n✅ SHORT SETUP:")
+                print(f"   Entry: Below ₹{entry:.2f} (below {nearest_resistance['price']:.2f} resistance)")
+                print(f"   Stop: ₹{stop:.2f} (Risk: {risk:.2f} points)")
+                print(f"   Target: ₹{target:.2f} (Reward: {reward:.2f} points)")
+                print(f"   Risk/Reward: 1:{rr_ratio:.1f}")
 
 def main():
     conn = get_db_connection()
