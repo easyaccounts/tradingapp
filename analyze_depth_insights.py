@@ -292,7 +292,7 @@ def analyze_depth_profile(conn):
             COUNT(*) as snapshots
         FROM depth_levels_200
         WHERE time::date = CURRENT_DATE
-          AND side = 'bid'
+          AND side = 'BID'
           AND price > 0
         GROUP BY level_num
         ORDER BY level_num
@@ -309,7 +309,7 @@ def analyze_depth_profile(conn):
             COUNT(*) as snapshots
         FROM depth_levels_200
         WHERE time::date = CURRENT_DATE
-          AND side = 'ask'
+          AND side = 'ASK'
           AND price > 0
         GROUP BY level_num
         ORDER BY level_num
