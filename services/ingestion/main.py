@@ -97,54 +97,53 @@ def main():
     # Main loop - single attempt with fail-fast on errors
     # Docker restart policy will handle service restarts
     try:
-        try:
-            # Initialize Redis client for fallback
-            logger.info("connecting_to_redis")
-            redis_client = redis.from_url(config.REDIS_URL, decode_responses=False)
-            redis_client.ping()
-            logger.info("redis_connected")
-            
-            # Load instruments cache from database
-            logger.info("loading_instruments_cache_from_database")
-            instruments_cache = load_instruments_cache(config.DATABASE_URL, redis_client)
-            
-            if not instruments_cache:
-                logger.warning(
-                    "instruments_cache_empty",
-                    message="Run scripts/update_instruments.py to populate cache"
-                )
-            else:
-                logger.info(
-                    "instruments_cache_loaded",
-                    count=len(instruments_cache)
-                )
-            
-            # Initialize RabbitMQ publisher
-            logger.info("initializing_rabbitmq_publisher")
-            publisher = RabbitMQPublisher(config.RABBITMQ_URL)
-            logger.info("rabbitmq_publisher_ready")
-            
-            # Initialize WebSocket handler
+        # Initialize Redis client for fallback
+        logger.info("connecting_to_redis")
+        redis_client = redis.from_url(config.REDIS_URL, decode_responses=False)
+        redis_client.ping()
+        logger.info("redis_connected")
+        
+        # Load instruments cache from database
+        logger.info("loading_instruments_cache_from_database")
+        instruments_cache = load_instruments_cache(config.DATABASE_URL, redis_client)
+        
+        if not instruments_cache:
+            logger.warning(
+                "instruments_cache_empty",
+                message="Run scripts/update_instruments.py to populate cache"
+            )
+        else:
             logger.info(
-                "initializing_websocket_handler",
-                instruments=config.INSTRUMENTS
+                "instruments_cache_loaded",
+                count=len(instruments_cache)
             )
-            
-            websocket_handler = KiteWebSocketHandler(
-                api_key=config.KITE_API_KEY,
-                access_token=access_token,
-                instruments=config.INSTRUMENTS,
-                publisher=publisher,
-                instruments_cache=instruments_cache,
-                slack_webhook_url=config.SLACK_WEBHOOK_URL
-            )
-            
-            logger.info("websocket_handler_initialized")
-            
-            # Start WebSocket (blocking call)
-            logger.info("starting_websocket_connection")
-            websocket_handler.start()
-            
+        
+        # Initialize RabbitMQ publisher
+        logger.info("initializing_rabbitmq_publisher")
+        publisher = RabbitMQPublisher(config.RABBITMQ_URL)
+        logger.info("rabbitmq_publisher_ready")
+        
+        # Initialize WebSocket handler
+        logger.info(
+            "initializing_websocket_handler",
+            instruments=config.INSTRUMENTS
+        )
+        
+        websocket_handler = KiteWebSocketHandler(
+            api_key=config.KITE_API_KEY,
+            access_token=access_token,
+            instruments=config.INSTRUMENTS,
+            publisher=publisher,
+            instruments_cache=instruments_cache,
+            slack_webhook_url=config.SLACK_WEBHOOK_URL
+        )
+        
+        logger.info("websocket_handler_initialized")
+        
+        # Start WebSocket (blocking call)
+        logger.info("starting_websocket_connection")
+        websocket_handler.start()
+        
         # If we reach here, connection closed normally
         logger.info("websocket_connection_closed_normally")
     
