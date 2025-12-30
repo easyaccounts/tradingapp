@@ -10,14 +10,18 @@ import psycopg2
 import os
 from datetime import datetime
 from collections import defaultdict
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Database connection (direct to TimescaleDB on VPS)
 DB_CONFIG = {
     'host': 'localhost',
     'port': 5432,  # Direct TimescaleDB connection
-    'database': 'tradingdb',
-    'user': 'tradinguser',
-    'password': os.getenv('DB_PASSWORD', 'tradingpass')
+    'database': os.getenv('DB_NAME', 'tradingdb'),
+    'user': os.getenv('DB_USER', 'tradinguser'),
+    'password': os.getenv('DB_PASSWORD')
 }
 
 def connect_db():
