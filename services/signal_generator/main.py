@@ -101,8 +101,20 @@ class SignalGenerator:
                     continue
                 
                 try:
-                    # Parse snapshot
+                    # Parse snapshot and ensure numeric types
                     snapshot = json.loads(message['data'])
+                    
+                    # Convert string numbers to proper types (Redis sometimes returns strings)
+                    snapshot['current_price'] = float(snapshot['current_price'])
+                    for bid in snapshot['bids']:
+                        bid['price'] = float(bid['price'])
+                        bid['quantity'] = int(bid['quantity'])
+                        bid['orders'] = int(bid['orders'])
+                    for ask in snapshot['asks']:
+                        ask['price'] = float(ask['price'])
+                        ask['quantity'] = int(ask['quantity'])
+                        ask['orders'] = int(ask['orders'])
+                    
                     self.process_snapshot(snapshot)
                     
                     # Calculate metrics every 10 seconds
