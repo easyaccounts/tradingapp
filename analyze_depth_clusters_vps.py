@@ -33,7 +33,7 @@ def get_todays_data(conn):
     cursor = conn.cursor()
     
     # Get data from today (UTC)
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.now(datetime.UTC).replace(hour=0, minute=0, second=0, microsecond=0) if hasattr(datetime, 'UTC') else datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     
     query = """
     SELECT 
@@ -209,7 +209,7 @@ def main():
         
         # Analyze clusters
         print("\nAnalyzing price clusters...")
-        clusters, avg_all, stdev_all = analyze_price_clusters(rows, min_orders=20)
+        clusters, avg_all, stdev_all = analyze_price_clusters(rows, min_orders=2)  # Lower threshold for 20-level depth
         
         # Print results
         print_clusters(clusters, avg_all, stdev_all, top_n=25)
