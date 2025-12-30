@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Ingestion Service - Main Entry Point
 Connects to KiteConnect WebSocket and ingests real-time tick data
@@ -9,12 +8,8 @@ import os
 import signal
 import time
 import logging
-import json
-from datetime import datetime, time as dt_time
-import pytz
 import structlog
 import redis
-import threading
 from config import config
 from kite_auth import get_access_token, check_token_validity
 from publisher import RabbitMQPublisher
@@ -41,74 +36,14 @@ logger = structlog.get_logger()
 # Global handler for graceful shutdown
 websocket_handler = None
 publisher = None
-redis_health_client = None
-health_update_thread = None
-stop_health_updates = False
-
-
-def is_market_hours():
-    """Check if current time is within market hours (9:15 AM - 3:30 PM IST)"""
-    ist = pytz.timezone('Asia/Kolkata')
-    now_ist = datetime.now(ist)
-    
-    # Check if it's a weekday (Monday=0, Sunday=6)
-    if now_ist.weekday() >= 5:  # Saturday or Sunday
-        return False
-    
-    market_start = dt_time(9, 15)
-    market_end = dt_time(15, 30)
-    current_time = now_ist.time()
-    
-    return market_start <= current_time <= market_end
-
-
-def publish_health_status():
-    """Background thread to publish health status to Redis every 15 seconds"""
-    global stop_health_updates, websocket_handler, redis_health_client
-    
-    while not stop_health_updates:
-        try:
-            if websocket_handler and redis_health_client:
-                # Calculate health status
-                now = time.time()
-                last_tick_age = (now - websocket_handler.last_tick_time) if websocket_handler.last_tick_time else None
-                
-                # Determine status
-                if not websocket_handler.websocket_connected:
-                    status = 'unhealthy'
-                    reason = 'WebSocket disconnected'
-                elif websocket_handler.error_403_count > 0:
-                    status = 'unhealthy'
-                    reason = f'Auth failed ({websocket_handler.error_403_count} x 403 errors)'
-                elif websocket_handler.reconnect_attempts >= websocket_handler.max_reconnect_attempts:
-                    status = 'unhealthy'
-                    reason = 'Max reconnection attempts reached'
-                elif last_tick_age and last_tick_age > 120 and is_market_hours():
-                    # No ticks for 2 minutes during market hours
-                    status = 'degraded'
-                    reason = f'No ticks for {int(last_tick_age)}s during market hours'
-                elif last_tick_age and last_tick_age > 300:
-                    # No ticks for 5 minutes (even off hours, something might be wrong)
-                    status = 'degraded'
-                    reason = f'No ticks for {int(last_tick_age)}s'
-                else:
-                    status = 'healthy'
-                    reason = 'WebSocket connected, receiving ticks'
-                
-                health_data = {\n                    'status': status,\n                    'reason': reason,\n                    'websocket_connected': websocket_handler.websocket_connected,\n                    'last_tick_time': websocket_handler.last_tick_time,\n                    'last_tick_age_seconds': int(last_tick_age) if last_tick_age else None,\n                    'tick_count': websocket_handler.tick_count,\n                    'valid_tick_count': websocket_handler.valid_tick_count,\n                    'published_count': websocket_handler.published_count,\n                    'error_403_count': websocket_handler.error_403_count,\n                    'reconnect_attempts': websocket_handler.reconnect_attempts,\n                    'is_market_hours': is_market_hours(),\n                    'updated_at': now\n                }\n                \n                # Write to Redis with 60 second TTL\n                redis_health_client.setex(\n                    'health:ingestion',\n                    60,\n                    json.dumps(health_data)\n                )\n                \n                logger.debug('health_status_published', status=status)\n            \n        except Exception as e:\n            logger.error('health_publish_failed', error=str(e))\n        \n        time.sleep(15)  # Update every 15 seconds
 
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
-    global stop_health_updates
-    
     logger.info(
         "shutdown_signal_received",
         signal=signal.Signals(signum).name
     )
-    
-    # Stop health updates
-    stop_health_updates = True
     
     # Stop WebSocket
     if websocket_handler:
@@ -118,17 +53,13 @@ def signal_handler(signum, frame):
     if publisher:
         publisher.close()
     
-    # Close Redis health client
-    if redis_health_client:
-        redis_health_client.close()
-    
     logger.info("ingestion_service_stopped")
     sys.exit(0)
 
 
 def main():
     """Main entry point for ingestion service"""
-    global websocket_handler, publisher, redis_health_client, health_update_thread
+    global websocket_handler, publisher
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -176,11 +107,6 @@ def main():
             redis_client.ping()
             logger.info("redis_connected")
             
-            # Initialize Redis health client (separate connection for health updates)
-            redis_health_client = redis.from_url(config.REDIS_URL, decode_responses=True)
-            redis_health_client.ping()
-            logger.info("redis_health_client_connected")
-            
             # Load instruments cache from database
             logger.info("loading_instruments_cache_from_database")
             instruments_cache = load_instruments_cache(config.DATABASE_URL, redis_client)
@@ -216,12 +142,6 @@ def main():
             )
             
             logger.info("websocket_handler_initialized")
-            
-            # Start health status publishing thread
-            logger.info("starting_health_status_publisher")
-            health_update_thread = threading.Thread(target=publish_health_status, daemon=True)
-            health_update_thread.start()
-            logger.info("health_status_publisher_started")
             
             # Start WebSocket (blocking call)
             logger.info("starting_websocket_connection")

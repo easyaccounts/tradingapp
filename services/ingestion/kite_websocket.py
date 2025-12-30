@@ -71,12 +71,6 @@ class KiteWebSocketHandler:
         self.reconnect_delay = 5  # Initial delay in seconds
         self.max_reconnect_delay = 60
         
-        # Health tracking
-        self.websocket_connected = False
-        self.last_tick_time = None
-        self.error_403_count = 0
-        self.last_error_time = None
-        
         # Initialize KiteTicker
         self.kws = None
         self._init_ticker()
@@ -112,9 +106,6 @@ class KiteWebSocketHandler:
             instruments_count=len(self.instruments)
         )
         
-        # Update health status
-        self.websocket_connected = True
-        
         try:
             # Subscribe to instruments in FULL mode to get market depth
             ws.subscribe(self.instruments)
@@ -128,7 +119,6 @@ class KiteWebSocketHandler:
             
             # Reset reconnection counter on successful connection
             self.reconnect_attempts = 0
-            self.error_403_count = 0
         
         except Exception as e:
             logger.error("subscription_failed", error=str(e))
@@ -144,7 +134,6 @@ class KiteWebSocketHandler:
         4. Publish to RabbitMQ
         """
         self.tick_count += len(ticks)
-        self.last_tick_time = time.time()  # Update health metric
         
         for raw_tick_data in ticks:
             try:
@@ -237,8 +226,8 @@ class KiteWebSocketHandler:
             "websocket_closed",
             code=code,
             reason=reason
-        )        
-        self.websocket_connected = False        
+        )
+        
         # Flush remaining ticks before closing
         if self.tick_buffer:
             logger.info("flushing_remaining_ticks_on_close", count=len(self.tick_buffer))
@@ -252,13 +241,8 @@ class KiteWebSocketHandler:
             "websocket_error",
             code=code,
             reason=reason
-        )        
-        # Track 403 errors (authentication failures)
-        if code == 403 or "403" in str(reason) or "Forbidden" in str(reason):
-            self.error_403_count += 1
-            self.last_error_time = time.time()
-        
-        self.websocket_connected = False    
+        )
+    
     def on_reconnect(self, ws, attempts_count):
         """Callback when WebSocket attempts to reconnect"""
         self.reconnect_attempts = attempts_count

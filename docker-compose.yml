@@ -159,12 +159,6 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import redis, json, sys; r=redis.from_url('$REDIS_URL', decode_responses=True); data=json.loads(r.get('health:ingestion') or '{}'); sys.exit(0 if data.get('status') in ['healthy', 'degraded'] else 1)\""]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
     restart: unless-stopped
     networks:
       - tradingapp-network
