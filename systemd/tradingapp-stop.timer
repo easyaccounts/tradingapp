@@ -2,8 +2,8 @@
 Description=Stop Trading App at 3:40 PM IST
 
 [Timer]
-# Run at 3:40 PM IST (10:10 AM UTC)
-OnCalendar=*-*-* 10:10:00
+# TEMPORARY TEST: Run at 18:20 UTC for testing
+OnCalendar=*-*-* 18:20:00 UTC
 Persistent=true
 Unit=tradingapp-market-hours.service
 
