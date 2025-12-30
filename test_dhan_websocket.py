@@ -8,7 +8,7 @@ load_dotenv()
 
 ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN')
 CLIENT_ID = os.getenv('DHAN_CLIENT_ID')
-SECURITY_ID = '49543'  # NIFTY DEC 2025 FUT (yesterday's working instrument)
+SECURITY_ID = '1333'  # RELIANCE (NSE_EQ - always active)
 
 print(f"ACCESS_TOKEN: {ACCESS_TOKEN[:20]}..." if ACCESS_TOKEN else "None")
 print(f"CLIENT_ID: {CLIENT_ID}")
@@ -34,7 +34,7 @@ def on_open(ws):
     # Subscribe to 200-level depth
     subscription = {
         'RequestCode': 23,
-        'ExchangeSegment': 'NSE_FNO',
+        'ExchangeSegment': 'NSE_EQ',
         'SecurityId': SECURITY_ID
     }
     
