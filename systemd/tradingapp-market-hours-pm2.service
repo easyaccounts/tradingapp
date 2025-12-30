@@ -1,0 +1,22 @@
+[Unit]
+Description=Trading App Market Data Services (PM2)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/tradingapp
+User=root
+
+# Start PM2 services for market hours
+# Services: ingestion, depth-collector, signal-generator, worker-1, worker-2, worker-3
+ExecStart=/usr/bin/pm2 start ingestion depth-collector signal-generator worker-1 worker-2 worker-3
+
+# Check service status after start
+ExecStartPost=/bin/sleep 5
+ExecStartPost=/usr/bin/pm2 status
+
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

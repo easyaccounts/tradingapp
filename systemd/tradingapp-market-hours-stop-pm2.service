@@ -1,0 +1,21 @@
+[Unit]
+Description=Stop Trading App Market Data Services (PM2)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/tradingapp
+User=root
+
+# Stop PM2 services after market hours
+# Services: ingestion, depth-collector, signal-generator, worker-1, worker-2, worker-3
+ExecStart=/usr/bin/pm2 stop ingestion depth-collector signal-generator worker-1 worker-2 worker-3
+
+# Check service status after stop
+ExecStartPost=/bin/sleep 2
+ExecStartPost=/usr/bin/pm2 status
+
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
