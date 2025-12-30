@@ -42,6 +42,11 @@ redis_client = None
 snapshot_count = 0
 start_time = None
 
+# Buffer for incomplete depth snapshots (bid/ask come separately)
+pending_bid_depth = None
+pending_ask_depth = None
+pending_timestamp = None
+
 def get_db_connection():
     """Establish database connection with retry logic"""
     max_retries = 5
@@ -472,7 +477,17 @@ def main():
         credentials = get_dhan_credentials()
         ACCESS_TOKEN = credentials['access_token']
         CLIENT_ID = credentials['client_id']
+        
+        # Fallback to environment if not in credentials
+        if not CLIENT_ID:
+            CLIENT_ID = os.getenv('DHAN_CLIENT_ID')
+            print(f"⚠ Using CLIENT_ID from environment: {CLIENT_ID}")
+        
         print(f"✓ Authenticated as Client ID: {CLIENT_ID}")
+        
+        if not CLIENT_ID:
+            raise ValueError("CLIENT_ID is required but not found")
+            
     except Exception as e:
         print(f"ERROR: Failed to authenticate with Dhan API: {e}")
         print("\nSetup instructions:")
