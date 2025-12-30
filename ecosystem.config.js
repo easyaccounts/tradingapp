@@ -251,6 +251,26 @@ module.exports = {
       out_file: '/opt/tradingapp/logs/ssl-monitor-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       merge_logs: true
+    },
+    {
+      name: 'depth-insights-slack',
+      script: 'depth_insights_slack.py',
+      interpreter: '/opt/tradingapp/venv/bin/python',
+      cwd: '/opt/tradingapp',
+      instances: 1,
+      autorestart: false,  // Cron mode - don't restart on exit
+      cron_restart: '*/5 9-15 * * 1-5',  // Every 5 mins, 9 AM-3 PM IST, Mon-Fri only
+      watch: false,
+      max_memory_restart: '200M',
+      env: {
+        ...envVars,
+        PYTHONUNBUFFERED: '1',
+        PYTHONPATH: '/opt/tradingapp'
+      },
+      error_file: '/opt/tradingapp/logs/depth-insights-slack-error.log',
+      out_file: '/opt/tradingapp/logs/depth-insights-slack-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true
     }
   ]
 };
