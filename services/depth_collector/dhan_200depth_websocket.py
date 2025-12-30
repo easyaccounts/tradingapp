@@ -158,11 +158,16 @@ def parse_response_header_20depth(data):
     if len(data) < 12:
         return None
     
+    # DEBUG: Print raw header bytes
+    print(f"[HEX] Header bytes: {data[:12].hex()}")
+    
     message_length = struct.unpack('<H', data[0:2])[0]
     response_code = data[2]
     exchange_segment = data[3]
     security_id = struct.unpack('<I', data[4:8])[0]
     num_rows = struct.unpack('<I', data[8:12])[0]
+    
+    print(f"[PARSE] msg_len={message_length}, code={response_code}, seg={exchange_segment}, sec_id={security_id}, num_rows={num_rows}")
     
     return {
         'message_length': message_length,
