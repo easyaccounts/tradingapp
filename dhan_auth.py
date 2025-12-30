@@ -102,6 +102,10 @@ class DhanAuthManager:
             self.access_token = data.get('access_token')
             expiry_str = data.get('expiry')
             
+            # Load client_id from file if not set
+            if not self.client_id:
+                self.client_id = data.get('client_id')
+            
             if self.access_token and expiry_str:
                 self.token_expiry = datetime.fromisoformat(expiry_str)
                 return True
