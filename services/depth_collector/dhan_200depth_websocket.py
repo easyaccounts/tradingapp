@@ -359,16 +359,11 @@ def on_message(ws, message):
     
     try:
         if isinstance(message, bytes):
-            # Log raw message details for debugging
-            print(f"[DEBUG] Received binary message: {len(message)} bytes")
-            
-            # Log first few bytes to inspect message type
+            # Check for disconnect with reason code first
             if len(message) >= 12:
-                response_code = message[2]
-                print(f"[DEBUG] Response code: {response_code} (41=BID, 51=ASK, 50=DISCONNECT)")
+                first_response_code = message[2]
                 
-                # Check for disconnect with reason code
-                if response_code == RESPONSE_DISCONNECT:
+                if first_response_code == RESPONSE_DISCONNECT:
                     if len(message) >= 14:
                         disconnect_code = struct.unpack('<H', message[12:14])[0]
                         print(f"[ERROR] Server sent disconnect code: {disconnect_code}")
@@ -380,6 +375,7 @@ def on_message(ws, message):
             if len(message) % PACKET_SIZE == 0 and len(message) >= PACKET_SIZE:
                 # Process each 332-byte packet in the message
                 num_packets = len(message) // PACKET_SIZE
+                print(f"[DEBUG] Received {len(message)} bytes = {num_packets} packets")
                 
                 for i in range(num_packets):
                     offset = i * PACKET_SIZE
@@ -388,17 +384,23 @@ def on_message(ws, message):
                     
                     if response_code == RESPONSE_BID_DEPTH:
                         # Got BID packet
+                        print(f"  Packet {i+1}: BID depth")
                         bid_depth = parse_depth_packet_20(packet)
                         if bid_depth:
                             pending_bid_depth = bid_depth
                             pending_timestamp = datetime.now(ist).astimezone(pytz.UTC)
+                            print(f"    Stored BID with {len(bid_depth)} levels, best bid: ₹{bid_depth[0]['price']:,.2f}")
                             
                     elif response_code == RESPONSE_ASK_DEPTH:
                         # Got ASK packet - check if we have matching BID
+                        print(f"  Packet {i+1}: ASK depth")
                         ask_depth = parse_depth_packet_20(packet)
-                        if ask_depth and pending_bid_depth and pending_timestamp:
-                            # We have a complete snapshot!
-                            save_depth_levels_to_db(db_cursor, pending_bid_depth, ask_depth, pending_timestamp, int(SECURITY_ID))
+                        if ask_depth:
+                            print(f"    ASK has {len(ask_depth)} levels, best ask: ₹{ask_depth[0]['price']:,.2f}")
+                            if pending_bid_depth and pending_timestamp:
+                                print(f"    ✓ Complete snapshot! Saving to DB...")
+                                # We have a complete snapshot!
+                                save_depth_levels_to_db(db_cursor, pending_bid_depth, ask_depth, pending_timestamp, int(SECURITY_ID))
                             
                             # Publish to Redis for signal-generator
                             if redis_client:
