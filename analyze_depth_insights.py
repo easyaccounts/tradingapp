@@ -76,7 +76,7 @@ def get_snapshot_data(conn, timestamp):
             'orders': int(row[4])
         }
         
-        if row[1] == 'bid':
+        if row[1].lower() == 'bid':
             bids.append(level_data)
         else:
             asks.append(level_data)
