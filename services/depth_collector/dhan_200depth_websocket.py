@@ -438,7 +438,7 @@ def on_close(ws, close_status_code, close_msg):
         print("Redis connection closed")
 
 def main():
-    """Main function to start WebSocket connection"""
+    """Main function to start WebSocket connection with auto-reconnect"""
     global ws, db_conn, db_cursor, redis_client, ACCESS_TOKEN, CLIENT_ID
     
     # Get Dhan credentials (auto-handles token refresh)
@@ -490,21 +490,59 @@ def main():
     print()
     print("=" * 80)
     print("DHAN 200-DEPTH API WebSocket Client")
-    print("Starting connection...")
+    print("Starting connection with auto-reconnect...")
     print("=" * 80)
     print()
     
-    # Create and start WebSocket connection
-    ws = websocket.WebSocketApp(
-        ws_url,
-        on_open=on_open,
-        on_message=on_message,
-        on_error=on_error,
-        on_close=on_close
-    )
+    # Reconnection with exponential backoff
+    retry_count = 0
+    max_retries = 10
+    base_delay = 5
+    max_delay = 300  # 5 minutes
     
-    # Run forever (blocking)
-    ws.run_forever()
+    while retry_count < max_retries:
+        try:
+            # Create and start WebSocket connection
+            ws = websocket.WebSocketApp(
+                ws_url,
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close
+            )
+            
+            # Run with ping/pong keepalive (ping every 20 seconds, timeout after 10 seconds)
+            ws.run_forever(ping_interval=20, ping_timeout=10)
+            
+            # If we got data, reset retry counter
+            if snapshot_count > 0:
+                retry_count = 0
+            else:
+                retry_count += 1
+            
+            # Calculate backoff delay
+            if retry_count > 0:
+                delay = min(base_delay * (2 ** retry_count), max_delay)
+                print(f"\nReconnection attempt {retry_count}/{max_retries} in {delay}s...")
+                time.sleep(delay)
+            else:
+                # Brief pause before reconnecting after successful session
+                print("\nReconnecting in 5s...")
+                time.sleep(5)
+                
+        except KeyboardInterrupt:
+            print("\n\nReceived interrupt signal, shutting down...")
+            break
+        except Exception as e:
+            retry_count += 1
+            print(f"\nUnexpected error: {e}")
+            if retry_count < max_retries:
+                delay = min(base_delay * (2 ** retry_count), max_delay)
+                print(f"Reconnection attempt {retry_count}/{max_retries} in {delay}s...")
+                time.sleep(delay)
+            else:
+                print(f"Max retries ({max_retries}) reached. Exiting...")
+                break
 
 if __name__ == "__main__":
     main()
