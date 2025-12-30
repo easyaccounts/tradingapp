@@ -334,7 +334,7 @@ def on_open(ws):
     subscription_request = {
         'RequestCode': 23,
         'ExchangeSegment': 'NSE_FNO',
-        'SecurityId': SECURITY_ID
+        'SecurityId': str(SECURITY_ID)  # Must be string per Dhan API docs
     }
     
     ws.send(json.dumps(subscription_request))
@@ -511,8 +511,9 @@ def main():
                 on_close=on_close
             )
             
-            # Run with ping/pong keepalive (ping every 20 seconds, timeout after 10 seconds)
-            ws.run_forever(ping_interval=20, ping_timeout=10)
+            # Run forever - server sends ping every 10s, websocket library auto-responds with pong
+            # Server disconnects if no pong within 40s (per Dhan docs)
+            ws.run_forever()
             
             # If we got data, reset retry counter
             if snapshot_count > 0:
