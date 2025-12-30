@@ -234,6 +234,23 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       merge_logs: true,
       kill_timeout: 5000
+    },
+    {
+      name: 'ssl-monitor',
+      script: 'monitor-ssl.py',
+      interpreter: '/opt/tradingapp/venv/bin/python',
+      cwd: '/opt/tradingapp',
+      instances: 1,
+      autorestart: true,
+      watch: false,  // No need to watch - just monitors
+      max_memory_restart: '100M',
+      env: {
+        PYTHONUNBUFFERED: '1'
+      },
+      error_file: '/opt/tradingapp/logs/ssl-monitor-error.log',
+      out_file: '/opt/tradingapp/logs/ssl-monitor-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true
     }
   ]
 };
