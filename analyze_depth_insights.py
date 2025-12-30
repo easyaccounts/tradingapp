@@ -291,7 +291,9 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
         
         # Show executed trade volume for strongest (starred) levels only
         if is_strongest:
-            vol_data = get_volume_at_price(conn, level['price'])
+            # NIFTY JAN 2026 FUT Kite instrument_token (different from Dhan security_id 49229)
+            NIFTY_JAN_FUT_TOKEN = 12602626
+            vol_data = get_volume_at_price(conn, level['price'], NIFTY_JAN_FUT_TOKEN)
             if vol_data['tested']:
                 # Level was tested with real trades
                 if vol_data['total_volume'] >= 1000:  # Significant volume
@@ -323,13 +325,14 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
     
     return level_history, persistent_levels
 
-def get_volume_at_price(conn, price, price_range=2.0):
+def get_volume_at_price(conn, price, instrument_token, price_range=2.0):
     """
     Analyze executed trade volume at a specific price level
     
     Args:
         conn: Database connection
         price: Target price level
+        instrument_token: Kite instrument token (e.g., 12602626 for NIFTY JAN FUT)
         price_range: +/- range to include (default ±2 points)
     
     Returns:
@@ -340,6 +343,7 @@ def get_volume_at_price(conn, price, price_range=2.0):
     # Query ticks table for executed trades near this price
     # Using time::date = CURRENT_DATE to match orderbook analysis (full day)
     # Note: time is stored in UTC
+    # Ticks table uses Kite instrument_token (different from depth_levels_200 security_id)
     cur.execute("""
         SELECT 
             COUNT(*) as trades,
@@ -349,9 +353,10 @@ def get_volume_at_price(conn, price, price_range=2.0):
             COALESCE(SUM(cvd_change), 0) as net_delta
         FROM ticks
         WHERE time::date = CURRENT_DATE
+          AND instrument_token = %s
           AND last_price BETWEEN %s AND %s
           AND volume_delta > 0
-    """, (price - price_range, price + price_range))
+    """, (instrument_token, price - price_range, price + price_range))
     
     row = cur.fetchone()
     cur.close()
