@@ -80,20 +80,7 @@ def send_token_notification(provider: str, client_name: str, expiry: str):
     
     try:
         now = datetime.now()
-        
-        # Parse expiry from Dhan format (e.g., "2025-01-31 23:59:59")
-        try:
-            expiry_dt = datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S") if expiry else now + timedelta(days=30)
-            time_remaining = expiry_dt - now
-            days_remaining = time_remaining.days
-            hours_remaining = time_remaining.seconds // 3600
-        except:
-            days_remaining = "Unknown"
-            hours_remaining = ""
-        
-        valid_for = f"{days_remaining} days" if isinstance(days_remaining, int) else days_remaining
-        if isinstance(days_remaining, int) and days_remaining == 0:
-            valid_for = f"{hours_remaining} hours"
+        expiry_24h = now + timedelta(hours=24)
         
         message = {
             "text": f"✅ *{provider} Token Saved*",
@@ -111,8 +98,8 @@ def send_token_notification(provider: str, client_name: str, expiry: str):
                         {"type": "mrkdwn", "text": f"*Provider:*\n{provider}"},
                         {"type": "mrkdwn", "text": f"*Client:*\n{client_name}"},
                         {"type": "mrkdwn", "text": f"*Saved At:*\n{now.strftime('%Y-%m-%d %H:%M:%S IST')}"},
-                        {"type": "mrkdwn", "text": f"*Expires At:*\n{expiry or 'N/A'}"},
-                        {"type": "mrkdwn", "text": f"*Valid For:*\n{valid_for}"},
+                        {"type": "mrkdwn", "text": f"*Expires At:*\n{expiry_24h.strftime('%Y-%m-%d %H:%M:%S IST')}"},
+                        {"type": "mrkdwn", "text": f"*Valid For:*\n24 hours"},
                         {"type": "mrkdwn", "text": f"*Token File:*\n`{TOKEN_FILE_PATH}`"}
                     ]
                 }

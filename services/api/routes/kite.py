@@ -68,7 +68,15 @@ def send_token_notification(provider: str, user_id: str = None):
     
     try:
         now = datetime.now()
-        expiry = now + timedelta(seconds=TOKEN_EXPIRY_SECONDS)
+        
+        # Kite tokens expire at 6:00 AM IST next day
+        tomorrow_6am = now.replace(hour=6, minute=0, second=0, microsecond=0)
+        if now.hour >= 6:
+            # If it's after 6 AM today, expiry is 6 AM tomorrow
+            tomorrow_6am += timedelta(days=1)
+        
+        time_remaining = tomorrow_6am - now
+        hours_remaining = int(time_remaining.total_seconds() // 3600)
         
         message = {
             "text": f"✅ *{provider} Token Saved*",
@@ -86,8 +94,8 @@ def send_token_notification(provider: str, user_id: str = None):
                         {"type": "mrkdwn", "text": f"*Provider:*\n{provider}"},
                         {"type": "mrkdwn", "text": f"*User:*\n{user_id or 'N/A'}"},
                         {"type": "mrkdwn", "text": f"*Saved At:*\n{now.strftime('%Y-%m-%d %H:%M:%S IST')}"},
-                        {"type": "mrkdwn", "text": f"*Expires At:*\n{expiry.strftime('%Y-%m-%d %H:%M:%S IST')}"},
-                        {"type": "mrkdwn", "text": f"*Valid For:*\n24 hours"},
+                        {"type": "mrkdwn", "text": f"*Expires At:*\n{tomorrow_6am.strftime('%Y-%m-%d 06:00:00 IST')}"},
+                        {"type": "mrkdwn", "text": f"*Valid For:*\n{hours_remaining} hours"},
                         {"type": "mrkdwn", "text": f"*Token File:*\n`{TOKEN_FILE_PATH}`"}
                     ]
                 }
