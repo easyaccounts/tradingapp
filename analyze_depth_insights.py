@@ -247,10 +247,21 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
     persistent_levels.sort(key=lambda x: x['avg_quantity'], reverse=True)
     
     print(f"PERSISTENT LEVELS (appeared in ≥{int(persistent_threshold)} snapshots with ≥5 orders peak):")
+    print(f"⭐ = Strongest level - used for trade setup in KEY INSIGHTS section below")
     print(f"{'-'*100}")
+    
+    # Track which is the strongest of each side
+    bid_levels = [l for l in persistent_levels if l['side'] == 'bid']
+    ask_levels = [l for l in persistent_levels if l['side'] == 'ask']
+    strongest_support = bid_levels[0] if bid_levels else None
+    strongest_resistance = ask_levels[0] if ask_levels else None
     
     for level in persistent_levels[:15]:
         side_label = 'SUPPORT' if level['side'] == 'bid' else 'RESISTANCE'
+        
+        # Mark strongest levels
+        is_strongest = (level == strongest_support or level == strongest_resistance)
+        marker = "⭐" if is_strongest else "  "
         
         # Check for absorption or accumulation
         history = level['history']
@@ -272,7 +283,7 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
         first_seen = history[0]['time'].strftime('%H:%M:%S')
         last_seen = history[-1]['time'].strftime('%H:%M:%S')
         
-        print(f"₹{level['price']:>10.2f} {side_label:>10} | Peak: {level['max_orders']:>2} orders | "
+        print(f"{marker} ₹{level['price']:>10.2f} {side_label:>10} | Peak: {level['max_orders']:>2} orders | "
               f"Avg: {level['avg_orders']:>4.1f} | Seen: {level['appearances']:>3}x | "
               f"{first_seen} → {last_seen}")
         print(f"  Qty: Peak {level['max_quantity']:,} | Avg {level['avg_quantity']:,.0f}")
