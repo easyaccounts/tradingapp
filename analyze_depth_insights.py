@@ -289,6 +289,23 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
         print(f"  Qty: Peak {level['max_quantity']:,} | Avg {level['avg_quantity']:,.0f}")
         print(f"  {signal}")
         
+        # Show executed trade volume for strongest (starred) levels only
+        if is_strongest:
+            vol_data = get_volume_at_price(conn, level['price'])
+            if vol_data['tested']:
+                # Level was tested with real trades
+                if vol_data['total_volume'] >= 1000:  # Significant volume
+                    delta_direction = "🟢" if vol_data['net_delta'] > 0 else "🔴" if vol_data['net_delta'] < 0 else "⚪"
+                    validation = "✅ TESTED" if vol_data['total_volume'] >= 5000 else "⚠️  Lightly tested"
+                    print(f"  📊 TRADED: {vol_data['trades']} trades | {vol_data['total_volume']:,} contracts")
+                    print(f"     {delta_direction} Buy: {vol_data['buy_volume']:,} ({vol_data['buy_pct']:.0f}%) | "
+                          f"Sell: {vol_data['sell_volume']:,} ({vol_data['sell_pct']:.0f}%) | "
+                          f"Delta: {vol_data['net_delta']:+,} {validation}")
+                else:
+                    print(f"  📊 TRADED: {vol_data['total_volume']:,} contracts (low volume - use caution ⚠️)")
+            else:
+                print(f"  ⚠️  UNTESTED: No trades executed at this level today")
+        
         # Show distance from current price
         if current_price:
             distance = level['price'] - current_price
@@ -305,6 +322,68 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
         print()
     
     return level_history, persistent_levels
+
+def get_volume_at_price(conn, price, price_range=2.0):
+    """
+    Analyze executed trade volume at a specific price level
+    
+    Args:
+        conn: Database connection
+        price: Target price level
+        price_range: +/- range to include (default ±2 points)
+    
+    Returns:
+        Dict with trade count, total volume, buy/sell breakdown, and net delta
+    """
+    cur = conn.cursor()
+    
+    # Query ticks table for executed trades near this price
+    # Using time::date = CURRENT_DATE to match orderbook analysis (full day)
+    # Note: time is stored in UTC
+    cur.execute("""
+        SELECT 
+            COUNT(*) as trades,
+            COALESCE(SUM(volume_delta), 0) as total_volume,
+            COALESCE(SUM(CASE WHEN aggressor_side = 'BUY' THEN volume_delta ELSE 0 END), 0) as buy_volume,
+            COALESCE(SUM(CASE WHEN aggressor_side = 'SELL' THEN volume_delta ELSE 0 END), 0) as sell_volume,
+            COALESCE(SUM(cvd_change), 0) as net_delta
+        FROM ticks
+        WHERE time::date = CURRENT_DATE
+          AND last_price BETWEEN %s AND %s
+          AND volume_delta > 0
+    """, (price - price_range, price + price_range))
+    
+    row = cur.fetchone()
+    cur.close()
+    
+    if row and row[0] > 0:
+        trades, total_volume, buy_volume, sell_volume, net_delta = row
+        
+        # Calculate percentages
+        buy_pct = (buy_volume / total_volume * 100) if total_volume > 0 else 0
+        sell_pct = (sell_volume / total_volume * 100) if total_volume > 0 else 0
+        
+        return {
+            'trades': int(trades),
+            'total_volume': int(total_volume),
+            'buy_volume': int(buy_volume),
+            'sell_volume': int(sell_volume),
+            'buy_pct': buy_pct,
+            'sell_pct': sell_pct,
+            'net_delta': int(net_delta),
+            'tested': True
+        }
+    else:
+        return {
+            'trades': 0,
+            'total_volume': 0,
+            'buy_volume': 0,
+            'sell_volume': 0,
+            'buy_pct': 0,
+            'sell_pct': 0,
+            'net_delta': 0,
+            'tested': False
+        }
 
 def analyze_order_flow_snapshots(conn, num_snapshots=20):
     """Analyze recent snapshots to show order flow dynamics"""
