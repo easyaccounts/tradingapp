@@ -150,6 +150,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       INGESTION_BATCH_SIZE: ${INGESTION_BATCH_SIZE}
       INGESTION_BATCH_TIMEOUT: ${INGESTION_BATCH_TIMEOUT}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      DOMAIN: ${DOMAIN}
+      ENVIRONMENT: ${ENVIRONMENT}
     volumes:
       - tokendata:/app/data
     depends_on:
@@ -159,7 +162,12 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    restart: unless-stopped
+    restart: on-failure
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 2m
+        max_attempts: 5
     networks:
       - tradingapp-network
 

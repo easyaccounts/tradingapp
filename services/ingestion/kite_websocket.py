@@ -3,9 +3,11 @@ KiteConnect WebSocket Handler
 Manages WebSocket connection to Kite and processes incoming ticks
 """
 
+import sys
 import time
 import os
 import structlog
+import requests
 from typing import List, Dict
 from kiteconnect import KiteTicker
 from models import KiteTick, MarketDepth, MarketDepthItem
@@ -14,6 +16,23 @@ from enricher import enrich_tick, InstrumentInfo
 from publisher import RabbitMQPublisher
 
 logger = structlog.get_logger()
+
+
+def send_slack_notification(webhook_url: str, message: str, emoji: str = "🚨") -> bool:
+    """Send simple text notification to Slack"""
+    if not webhook_url:
+        return False
+    
+    try:
+        payload = {
+            "text": f"{emoji} {message}",
+            "username": "Trading App Ingestion"
+        }
+        response = requests.post(webhook_url, json=payload, timeout=5)
+        return response.status_code == 200
+    except Exception as e:
+        logger.warning("slack_notification_failed", error=str(e))
+        return False
 
 
 class KiteWebSocketHandler:
@@ -35,7 +54,8 @@ class KiteWebSocketHandler:
         access_token: str,
         instruments: List[int],
         publisher: RabbitMQPublisher,
-        instruments_cache: Dict[int, InstrumentInfo]
+        instruments_cache: Dict[int, InstrumentInfo],
+        slack_webhook_url: str = ""
     ):
         """
         Initialize WebSocket handler
@@ -46,12 +66,14 @@ class KiteWebSocketHandler:
             instruments: List of instrument tokens to subscribe
             publisher: RabbitMQ publisher instance
             instruments_cache: Dictionary of instrument metadata
+            slack_webhook_url: Optional Slack webhook for error notifications
         """
         self.api_key = api_key
         self.access_token = access_token
         self.instruments = instruments
         self.publisher = publisher
         self.instruments_cache = instruments_cache
+        self.slack_webhook_url = slack_webhook_url
         
         # Statistics
         self.tick_count = 0
@@ -242,6 +264,34 @@ class KiteWebSocketHandler:
             code=code,
             reason=reason
         )
+        
+        # Crash on 403 Forbidden (authentication error)
+        # This typically means token is invalid/expired
+        # Wait 5 minutes before crashing to allow for temporary issues
+        if code == 403:
+            logger.critical(
+                "authentication_error_403",
+                message="Access token invalid or expired. Waiting 5 minutes before crashing to trigger restart with fresh token.",
+                backoff_seconds=300
+            )
+            
+            # Send Slack notification immediately so user can refresh token
+            domain = os.getenv("DOMAIN", "localhost")
+            protocol = "https" if os.getenv("ENVIRONMENT") == "production" else "http"
+            login_url = f"{protocol}://{domain}/"
+            
+            slack_message = (
+                "*Kite Authentication Error (403)*\n\n"
+                f"The access token is invalid or expired. Please login to refresh:\n"
+                f"{login_url}\n\n"
+                f"Service will crash and restart in 5 minutes if token is not refreshed."
+            )
+            
+            send_slack_notification(self.slack_webhook_url, slack_message, "🚨")
+            
+            time.sleep(300)  # 5-minute backoff
+            logger.critical("crashing_due_to_403_error")
+            sys.exit(1)
     
     def on_reconnect(self, ws, attempts_count):
         """Callback when WebSocket attempts to reconnect"""
@@ -254,10 +304,18 @@ class KiteWebSocketHandler:
     
     def on_noreconnect(self, ws):
         """Callback when WebSocket gives up reconnecting"""
-        logger.error(
+        logger.critical(
             "websocket_reconnect_failed",
-            message="Max reconnection attempts reached"
+            message="Max reconnection attempts reached. Crashing to trigger Docker restart.",
+            max_attempts=self.max_reconnect_attempts
         )
+        
+        # Flush remaining ticks before crashing
+        if self.tick_buffer:
+            logger.info("flushing_remaining_ticks_before_crash", count=len(self.tick_buffer))
+            self._flush_tick_buffer()
+        
+        sys.exit(1)
     
     def _flush_tick_buffer(self):
         """Flush buffered ticks to RabbitMQ"""

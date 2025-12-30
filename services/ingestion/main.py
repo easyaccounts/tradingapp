@@ -94,12 +94,9 @@ def main():
         logger.error("initialization_failed", error=str(e))
         sys.exit(1)
     
-    # Main loop with auto-restart
-    restart_count = 0
-    max_restarts = 10
-    restart_delay = 10  # seconds
-    
-    while restart_count < max_restarts:
+    # Main loop - single attempt with fail-fast on errors
+    # Docker restart policy will handle service restarts
+    try:
         try:
             # Initialize Redis client for fallback
             logger.info("connecting_to_redis")
@@ -138,54 +135,38 @@ def main():
                 access_token=access_token,
                 instruments=config.INSTRUMENTS,
                 publisher=publisher,
-                instruments_cache=instruments_cache
-            )
-            
-            logger.info("websocket_handler_initialized")
-            
-            # Start WebSocket (blocking call)
+            instruments_cache=instruments_cache,
+            slack_webhook_url=config.SLACK_WEBHOOK_URL
             logger.info("starting_websocket_connection")
             websocket_handler.start()
             
-            # If we reach here, connection closed normally
-            logger.info("websocket_connection_closed_normally")
-            break
+        # If we reach here, connection closed normally
+        logger.info("websocket_connection_closed_normally")
+    
+    except KeyboardInterrupt:
+        logger.info("keyboard_interrupt_received")
+    
+    except Exception as e:
+        logger.critical(
+            "fatal_ingestion_error",
+            error=str(e),
+            message="Crashing to trigger Docker restart"
+        )
         
-        except KeyboardInterrupt:
-            logger.info("keyboard_interrupt_received")
-            break
+        # Cleanup before crash
+        if publisher:
+            publisher.close()
+        if 'redis_client' in locals():
+            redis_client.close()
         
-        except Exception as e:
-            restart_count += 1
-            logger.error(
-                "ingestion_error",
-                error=str(e),
-                restart_count=restart_count,
-                max_restarts=max_restarts
-            )
-            
-            if restart_count < max_restarts:
-                logger.info(
-                    "restarting_ingestion_service",
-                    delay_seconds=restart_delay
-                )
-                time.sleep(restart_delay)
-                
-                # Exponential backoff (max 60 seconds)
-                restart_delay = min(restart_delay * 2, 60)
-            else:
-                logger.error(
-                    "max_restarts_reached",
-                    message="Giving up after multiple failures"
-                )
-                sys.exit(1)
-        
-        finally:
-            # Cleanup
-            if publisher:
-                publisher.close()
-            if redis_client:
-                redis_client.close()
+        sys.exit(1)
+    
+    finally:
+        # Normal cleanup
+        if publisher:
+            publisher.close()
+        if 'redis_client' in locals():
+            redis_client.close()
     
     logger.info("ingestion_service_exiting")
 

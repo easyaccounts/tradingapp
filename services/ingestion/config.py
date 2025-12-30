@@ -34,6 +34,9 @@ class Config:
         # Logging
         self.LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
         
+        # Slack webhook (optional)
+        self.SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
+        
         # Instruments to track - loaded from database (after DATABASE_URL is set)
         self.INSTRUMENTS: List[int] = self._load_instruments_from_db()
         
