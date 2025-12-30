@@ -464,7 +464,7 @@ def analyze_changes(current_levels, previous_state, current_price):
             print(f"  ⚠️  ₹{level['price']:.2f} {side_label} - Orders {prev:.1f} → {curr:.1f} ({pct:.0f}%)")
         print()
 
-def generate_key_insights(conn, current_price, persistent_levels):
+def generate_key_insights(conn, current_price, persistent_levels, latest_time=None):
     """Generate actionable insights"""
     print(f"\n{'='*100}")
     print(f"KEY INSIGHTS")
@@ -474,7 +474,10 @@ def generate_key_insights(conn, current_price, persistent_levels):
         print("Unable to generate insights - current price not available")
         return
     
-    # Find nearest support and resistance
+    # Show timestamp
+    if latest_time:
+        ist_time = latest_time + timedelta(hours=5, minutes=30)
+        print(f"🎯 PRICE ACTION: ₹{current_price:.2f} (as of {ist_time.strftime('%H:%M:%S')} IST)")
     supports = [l for l in persistent_levels if l['side'] == 'bid' and l['price'] < current_price]
     resistances = [l for l in persistent_levels if l['side'] == 'ask' and l['price'] > current_price]
     
@@ -508,7 +511,8 @@ def generate_key_insights(conn, current_price, persistent_levels):
             bias = "NEUTRAL"
             bias_icon = "━"
         
-        print(f"🎯 PRICE ACTION: ₹{current_price:.2f}")
+        if not latest_time:
+            print(f"🎯 PRICE ACTION: ₹{current_price:.2f}")
         
         if nearest_support:
             distance = current_price - nearest_support['price']
@@ -624,7 +628,7 @@ def main():
         
         # 5. Generate key insights
         if persistent_levels:
-            generate_key_insights(conn, current_price, persistent_levels)
+            generate_key_insights(conn, current_price, persistent_levels, latest_time)
         
         # Save current state for next run
         if persistent_levels and current_price:
