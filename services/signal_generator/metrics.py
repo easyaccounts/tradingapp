@@ -16,7 +16,7 @@ def identify_key_levels(current_snapshot: dict, level_tracker, current_price: fl
     """
     bid_levels = current_snapshot['bids']
     ask_levels = current_snapshot['asks']
-    timestamp = current_snapshot['timestamp']
+    timestamp = datetime.fromisoformat(current_snapshot['timestamp'])  # Parse datetime from ISO string
     
     # Calculate baseline (average orders per level)
     all_orders = [lvl['orders'] for lvl in bid_levels + ask_levels if lvl['orders'] > 0]

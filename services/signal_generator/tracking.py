@@ -11,7 +11,7 @@ class TrackedLevel:
     """Represents a tracked price level with order concentration"""
     
     def __init__(self, price: float, side: str, initial_orders: int, timestamp: datetime):
-        self.price = price
+        self.price = float(price)  # Ensure float type
         self.side = side  # 'support' or 'resistance'
         self.first_seen = timestamp
         self.peak_orders = initial_orders
@@ -25,6 +25,7 @@ class TrackedLevel:
     
     def update(self, orders: int, current_price: float, timestamp: datetime):
         """Update level with new data"""
+        current_price = float(current_price)  # Ensure float type
         self.current_orders = orders
         self.last_updated = timestamp
         
@@ -121,20 +122,25 @@ class LevelTracker:
     
     def add_level(self, price: float, side: str, orders: int, timestamp: datetime):
         """Add a new level to track"""
+        price = float(price)  # Ensure float type
         self.levels[price] = TrackedLevel(price, side, orders, timestamp)
     
     def update_level(self, price: float, orders: int, current_price: float, timestamp: datetime):
         """Update existing level"""
+        price = float(price)  # Ensure float type
+        current_price = float(current_price)  # Ensure float type
         if price in self.levels:
             self.levels[price].update(orders, current_price, timestamp)
     
     def remove_level(self, price: float):
         """Remove a level from tracking"""
+        price = float(price)  # Ensure float type
         if price in self.levels:
             del self.levels[price]
     
     def get_level(self, price: float) -> Optional[TrackedLevel]:
         """Get a specific level"""
+        price = float(price)  # Ensure float type
         return self.levels.get(price)
     
     def get_all_levels(self) -> list:
