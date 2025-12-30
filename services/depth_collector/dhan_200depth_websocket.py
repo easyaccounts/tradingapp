@@ -174,30 +174,47 @@ def parse_response_header_20depth(data):
 
 def parse_depth_packet_20(data):
     """Parse 20-level depth packet (bid or ask)"""
-    header = parse_response_header_20depth(data[:12])
-    if not header or header['num_rows'] == 0:
+    try:
+        header = parse_response_header_20depth(data[:12])
+        if not header:
+            print(f"[ERROR] Failed to parse header from {len(data)} byte packet")
+            return []
+        
+        print(f"[DEBUG] Header: num_rows={header['num_rows']}, security_id={header['security_id']}")
+        
+        if header['num_rows'] == 0:
+            print(f"[WARN] num_rows is 0, no depth data")
+            return []
+        
+        depth_data = []
+        offset = 12
+        
+        for i in range(min(header['num_rows'], DEPTH_LEVELS)):
+            if offset + 16 > len(data):
+                print(f"[WARN] Not enough data for level {i+1}, offset={offset}, len={len(data)}")
+                break
+            
+            price = struct.unpack('<d', data[offset:offset+8])[0]
+            quantity = struct.unpack('<I', data[offset+8:offset+12])[0]
+            orders = struct.unpack('<I', data[offset+12:offset+16])[0]
+            
+            depth_data.append({
+                'level': i + 1,
+                'price': price,
+                'quantity': quantity,
+                'orders': orders
+            })
+            
+            offset += 16
+        
+        print(f"[DEBUG] Parsed {len(depth_data)} levels successfully")
+        return depth_data
+        
+    except Exception as e:
+        print(f"[ERROR] Exception in parse_depth_packet_20: {e}")
+        import traceback
+        traceback.print_exc()
         return []
-    
-    depth_data = []
-    offset = 12
-    
-    for i in range(min(header['num_rows'], DEPTH_LEVELS)):
-        if offset + 16 > len(data):
-            break
-        
-        price = struct.unpack('<d', data[offset:offset+8])[0]
-        quantity = struct.unpack('<I', data[offset+8:offset+12])[0]
-        orders = struct.unpack('<I', data[offset+12:offset+16])[0]
-        
-        depth_data.append({
-            'level': i + 1,
-            'price': price,
-            'quantity': quantity,
-            'orders': orders
-        })
-        
-        offset += 16
-    
     return depth_data
 
 def analyze_depth_snapshot(bid_depth, ask_depth):
