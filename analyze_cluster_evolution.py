@@ -120,9 +120,9 @@ def track_level_over_time(conn, price_level, tolerance=0.5):
     return [(row[0], row[1], row[2], row[3], row[4]) for row in rows]
 
 def analyze_evolution(conn, window_minutes=2, top_n=5):
-    """Main evolution analysis"""
+    """Main evolution analysis - separate BID and ASK tracking"""
     print("\n" + "="*100)
-    print("ORDER CLUSTER EVOLUTION - Time Series Analysis")
+    print("ORDER CLUSTER EVOLUTION - Time Series Analysis (BID vs ASK)")
     print("="*100)
     
     windows = get_time_windows(conn, window_minutes)
@@ -134,56 +134,99 @@ def analyze_evolution(conn, window_minutes=2, top_n=5):
     print(f"\nAnalyzing {len(windows)} time windows ({window_minutes}-minute intervals)")
     print(f"Period: {windows[0][0].strftime('%H:%M')} to {windows[-1][1].strftime('%H:%M')} UTC\n")
     
-    # Track persistent levels across windows
-    level_appearances = defaultdict(list)
+    # Track persistent levels separately for BID and ASK
+    bid_level_appearances = defaultdict(list)
+    ask_level_appearances = defaultdict(list)
     
-    print("-"*100)
-    print(f"{'Time':^12} | {'Price':^10} | {'Side':^5} | {'Orders':^10} | {'Qty':^12} | {'Strength':^10}")
+    print("="*100)
+    print("TOP BID LEVELS (Support) - Over Time")
+    print("="*100)
+    print(f"{'Time':^12} | {'Price':^10} | {'Avg Orders':^12} | {'Max Orders':^12} | {'Avg Qty':^12}")
     print("-"*100)
     
     for i, (start, end) in enumerate(windows):
-        clusters = get_clusters_for_window(conn, start, end, top_n)
+        clusters = get_clusters_for_window(conn, start, end, top_n * 2)  # Get more to ensure both sides
         
-        if not clusters:
-            continue
-        
-        time_label = start.strftime('%H:%M')
-        
-        # Show top cluster for this window
-        top = clusters[0]
-        side_label = 'BID' if top['side'] == 'bid' else 'ASK'
-        
-        print(f"{time_label:^12} | ₹{top['price']:>8.2f} | {side_label:^5} | "
-              f"{top['avg_orders']:>10.1f} | {top['avg_quantity']:>12,.0f} | "
-              f"{top['max_orders']:>10}")
-        
-        # Track this level
-        level_key = (round(top['price'], 1), top['side'])
-        level_appearances[level_key].append({
-            'time': start,
-            'avg_orders': top['avg_orders'],
-            'max_orders': top['max_orders']
-        })
+        # Find top BID
+        bid_clusters = [c for c in clusters if c['side'] == 'bid']
+        if bid_clusters:
+            top_bid = bid_clusters[0]
+            time_label = start.strftime('%H:%M')
+            
+            print(f"{time_label:^12} | ₹{top_bid['price']:>8.2f} | {top_bid['avg_orders']:>12.1f} | "
+                  f"{top_bid['max_orders']:>12} | {top_bid['avg_quantity']:>12,.0f}")
+            
+            # Track this level
+            level_key = round(top_bid['price'], 1)
+            bid_level_appearances[level_key].append({
+                'time': start,
+                'avg_orders': top_bid['avg_orders'],
+                'max_orders': top_bid['max_orders']
+            })
     
+    print("\n" + "="*100)
+    print("TOP ASK LEVELS (Resistance) - Over Time")
+    print("="*100)
+    print(f"{'Time':^12} | {'Price':^10} | {'Avg Orders':^12} | {'Max Orders':^12} | {'Avg Qty':^12}")
     print("-"*100)
     
-    # Identify persistent levels (appeared in multiple windows)
+    for i, (start, end) in enumerate(windows):
+        clusters = get_clusters_for_window(conn, start, end, top_n * 2)
+        
+        # Find top ASK
+        ask_clusters = [c for c in clusters if c['side'] == 'ask']
+        if ask_clusters:
+            top_ask = ask_clusters[0]
+            time_label = start.strftime('%H:%M')
+            
+            print(f"{time_label:^12} | ₹{top_ask['price']:>8.2f} | {top_ask['avg_orders']:>12.1f} | "
+                  f"{top_ask['max_orders']:>12} | {top_ask['avg_quantity']:>12,.0f}")
+            
+            # Track this level
+            level_key = round(top_ask['price'], 1)
+            ask_level_appearances[level_key].append({
+                'time': start,
+                'avg_orders': top_ask['avg_orders'],
+                'max_orders': top_ask['max_orders']
+            })
+    
     print("\n" + "="*100)
-    print("PERSISTENT LEVELS (appeared in 5+ windows)")
+    print("PERSISTENT SUPPORT LEVELS (BID - appeared in 5+ windows)")
     print("="*100)
     
-    persistent = [(level, data) for level, data in level_appearances.items() if len(data) >= 5]
-    persistent.sort(key=lambda x: len(x[1]), reverse=True)
+    persistent_bids = [(level, data) for level, data in bid_level_appearances.items() if len(data) >= 5]
+    persistent_bids.sort(key=lambda x: len(x[1]), reverse=True)
     
-    for (price, side), data in persistent[:10]:
-        side_label = 'BID' if side == 'bid' else 'ASK'
-        avg_strength = sum(d['avg_orders'] for d in data) / len(data)
-        max_strength = max(d['max_orders'] for d in data)
-        first_seen = data[0]['time'].strftime('%H:%M')
-        last_seen = data[-1]['time'].strftime('%H:%M')
-        
-        print(f"₹{price:.1f} ({side_label}) - Appeared {len(data)}x from {first_seen} to {last_seen}")
-        print(f"  Avg strength: {avg_strength:.1f} orders, Peak: {max_strength} orders")
+    if persistent_bids:
+        for price, data in persistent_bids[:10]:
+            avg_strength = sum(d['avg_orders'] for d in data) / len(data)
+            max_strength = max(d['max_orders'] for d in data)
+            first_seen = data[0]['time'].strftime('%H:%M')
+            last_seen = data[-1]['time'].strftime('%H:%M')
+            
+            print(f"₹{price:.1f} - Appeared {len(data)}x from {first_seen} to {last_seen}")
+            print(f"  Avg strength: {avg_strength:.1f} orders, Peak: {max_strength} orders")
+    else:
+        print("No persistent BID levels found")
+    
+    print("\n" + "="*100)
+    print("PERSISTENT RESISTANCE LEVELS (ASK - appeared in 5+ windows)")
+    print("="*100)
+    
+    persistent_asks = [(level, data) for level, data in ask_level_appearances.items() if len(data) >= 5]
+    persistent_asks.sort(key=lambda x: len(x[1]), reverse=True)
+    
+    if persistent_asks:
+        for price, data in persistent_asks[:10]:
+            avg_strength = sum(d['avg_orders'] for d in data) / len(data)
+            max_strength = max(d['max_orders'] for d in data)
+            first_seen = data[0]['time'].strftime('%H:%M')
+            last_seen = data[-1]['time'].strftime('%H:%M')
+            
+            print(f"₹{price:.1f} - Appeared {len(data)}x from {first_seen} to {last_seen}")
+            print(f"  Avg strength: {avg_strength:.1f} orders, Peak: {max_strength} orders")
+    else:
+        print("No persistent ASK levels found")
     
     print("\n" + "="*100)
 
