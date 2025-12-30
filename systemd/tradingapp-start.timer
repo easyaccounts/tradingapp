@@ -2,8 +2,8 @@
 Description=Start Trading App at 9:00 AM IST
 
 [Timer]
-# TEMPORARY TEST: Run at 11:30 PM IST (18:00 UTC) for testing
-OnCalendar=*-*-* 18:00:00
+# TEMPORARY TEST: Run at 19:05 CET (18:05 UTC) for testing
+OnCalendar=*-*-* 18:05:00
 Persistent=true
 Unit=tradingapp-market-hours.service
 
