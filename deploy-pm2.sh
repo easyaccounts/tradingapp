@@ -46,9 +46,7 @@ fi
 echo -e "${GREEN}✓ .env exists${NC}"
 
 # Check critical env vars
-set -a
-source .env
-set +a
+DB_HOST=$(grep "^DB_HOST=" .env | cut -d'=' -f2)
 if [[ "$DB_HOST" == "pgbouncer" ]] || [[ "$DB_HOST" == "timescaledb" ]]; then
     echo -e "${RED}✗ DB_HOST still set to Docker service name: $DB_HOST${NC}"
     echo "Update .env: DB_HOST=localhost"
@@ -70,6 +68,12 @@ fi
 # Phase 3: Test Database Connections
 echo ""
 echo -e "${YELLOW}Phase 3: Testing Database Connections${NC}"
+
+# Load DB credentials for testing
+DB_PASSWORD=$(grep "^DB_PASSWORD=" .env | cut -d'=' -f2)
+DB_USER=$(grep "^DB_USER=" .env | cut -d'=' -f2)
+DB_NAME=$(grep "^DB_NAME=" .env | cut -d'=' -f2)
+
 echo "3.1 Testing PostgreSQL connection..."
 if PGPASSWORD=$DB_PASSWORD psql -h localhost -p 6432 -U $DB_USER -d $DB_NAME -c "SELECT 1;" &> /dev/null; then
     echo -e "${GREEN}✓ PostgreSQL connection OK${NC}"
