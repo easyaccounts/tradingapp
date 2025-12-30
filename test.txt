@@ -3,3 +3,28 @@ docker-compose stop api ingestion depth-collector frontend nginx
 && docker-compose build api ingestion depth-collector frontend nginx && 
 docker-compose up -d api ingestion depth-collector frontend nginx
 docker-compose stop ingestion depth-collector signal-generator worker-1 worker-2 worker-3
+
+
+
+Auto-Start at 9:00 AM IST (3:30 AM UTC) Tomorrow:
+The following services will automatically start:
+
+ingestion - Kite WebSocket data feed
+depth-collector - Dhan 200-depth orderbook collector
+signal-generator - Trading signal detection
+worker-1, worker-2, worker-3 - Database batch writers
+Auto-Stop at 3:40 PM IST (10:10 AM UTC):
+Same services will automatically stop after market close.
+
+Next Execution:
+START: Tuesday, Dec 30 at 3:30 AM UTC (9:00 AM IST) - in ~6 hours
+STOP: Tuesday, Dec 30 at 10:10 AM UTC (3:40 PM IST) - in ~13 hours
+What Stays Running 24/7:
+These services run continuously (not controlled by timers):
+
+api - REST API endpoints
+frontend - Web interface
+nginx - Web server
+timescaledb, pgbouncer - Database
+redis, rabbitmq - Message queue
+prometheus, grafana - Monitoring
