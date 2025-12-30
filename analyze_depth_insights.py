@@ -57,9 +57,10 @@ def get_snapshot_data(conn, timestamp):
     cur.execute("""
         SELECT level_num, side, price, quantity, orders
         FROM depth_levels_200
-        WHERE time = %s
-        ORDER BY side, level_num
-    """, (timestamp,))
+        WHERE time >= %s AND time < %s + INTERVAL '1 second'
+          AND price > 0
+        ORDER BY side DESC, level_num
+    """, (timestamp, timestamp))
     
     rows = cur.fetchall()
     cur.close()
@@ -223,33 +224,47 @@ def track_level_evolution(conn, sample_interval_seconds=60):
 
 def analyze_order_flow_snapshots(conn, num_snapshots=20):
     """Analyze recent snapshots to show order flow dynamics"""
-    snapshots = get_snapshots(conn)[-num_snapshots:]
+    snapshots = get_snapshots(conn)
     
     if len(snapshots) < 2:
         print("Not enough snapshots")
         return
     
+    # Take last N snapshots
+    recent_snapshots = snapshots[-num_snapshots:]
+    
     print(f"\n{'='*100}")
-    print(f"ORDER FLOW ANALYSIS - Last {len(snapshots)} Snapshots")
+    print(f"ORDER FLOW ANALYSIS - Last {len(recent_snapshots)} Snapshots")
     print(f"{'='*100}\n")
     
     print(f"{'Time':^10} | {'Bid Orders':>12} | {'Ask Orders':>12} | {'Imbalance':>12} | "
-          f"{'Top Bid':>12} | {'Top Ask':>12}")
+          f"{'Top Bid Lvl':>15} | {'Top Ask Lvl':>15}")
     print(f"{'-'*100}")
     
-    for ts in snapshots:
+    for ts in recent_snapshots:
         bids, asks = get_snapshot_data(conn, ts)
         
-        if not bids or not asks:
+        if not bids and not asks:
             continue
         
         imbalance = analyze_snapshot_imbalance(bids, asks)
-        top_bids, top_asks = find_strongest_levels(bids, asks, top_n=1)
+        
+        # Find strongest levels
+        top_bid_str = "N/A"
+        top_ask_str = "N/A"
+        
+        if bids:
+            top_bid = max(bids, key=lambda x: x['orders'])
+            top_bid_str = f"₹{top_bid['price']:.2f}({top_bid['orders']})"
+        
+        if asks:
+            top_ask = max(asks, key=lambda x: x['orders'])
+            top_ask_str = f"₹{top_ask['price']:.2f}({top_ask['orders']})"
         
         time_str = ts.strftime('%H:%M:%S')
         imb_str = f"{imbalance['order_imbalance']:+.1f}%"
         
-        # Color coding based on imbalance
+        # Signal based on imbalance
         if imbalance['order_imbalance'] > 20:
             signal = "🟢 BULLISH"
         elif imbalance['order_imbalance'] < -20:
@@ -257,11 +272,8 @@ def analyze_order_flow_snapshots(conn, num_snapshots=20):
         else:
             signal = "━  NEUTRAL"
         
-        top_bid_str = f"₹{top_bids[0]['price']:.2f}({top_bids[0]['orders']})" if top_bids else "N/A"
-        top_ask_str = f"₹{top_asks[0]['price']:.2f}({top_asks[0]['orders']})" if top_asks else "N/A"
-        
         print(f"{time_str:^10} | {imbalance['bid_orders']:>12} | {imbalance['ask_orders']:>12} | "
-              f"{imb_str:>12} | {top_bid_str:>12} | {top_ask_str:>12} {signal}")
+              f"{imb_str:>12} | {top_bid_str:>15} | {top_ask_str:>15} {signal}")
 
 def analyze_depth_profile(conn):
     """Analyze average depth profile across all snapshots"""
@@ -271,39 +283,58 @@ def analyze_depth_profile(conn):
     print(f"AVERAGE DEPTH PROFILE BY LEVEL")
     print(f"{'='*100}\n")
     
-    # Get average orders per level
+    # Get average orders per level for BID
     cur.execute("""
         SELECT 
             level_num,
-            side,
             AVG(orders) as avg_orders,
             AVG(quantity) as avg_quantity,
             COUNT(*) as snapshots
         FROM depth_levels_200
         WHERE time::date = CURRENT_DATE
-          AND orders > 0
-        GROUP BY level_num, side
-        ORDER BY side DESC, level_num
+          AND side = 'bid'
+          AND price > 0
+        GROUP BY level_num
+        ORDER BY level_num
     """)
     
-    results = cur.fetchall()
+    bid_results = cur.fetchall()
+    
+    # Get average orders per level for ASK
+    cur.execute("""
+        SELECT 
+            level_num,
+            AVG(orders) as avg_orders,
+            AVG(quantity) as avg_quantity,
+            COUNT(*) as snapshots
+        FROM depth_levels_200
+        WHERE time::date = CURRENT_DATE
+          AND side = 'ask'
+          AND price > 0
+        GROUP BY level_num
+        ORDER BY level_num
+    """)
+    
+    ask_results = cur.fetchall()
     cur.close()
     
-    print("BID SIDE (Support):")
-    print(f"{'Level':>5} | {'Avg Orders':>12} | {'Avg Quantity':>15} | {'Snapshots':>12}")
-    print(f"{'-'*60}")
+    if bid_results:
+        print("BID SIDE (Support):")
+        print(f"{'Level':>5} | {'Avg Orders':>12} | {'Avg Quantity':>15} | {'Snapshots':>12}")
+        print(f"{'-'*60}")
+        for row in bid_results:
+            print(f"{row[0]:>5} | {row[1]:>12.2f} | {row[2]:>15,.0f} | {row[3]:>12}")
+    else:
+        print("BID SIDE (Support): No data available")
     
-    for row in results:
-        if row[1] == 'bid':
-            print(f"{row[0]:>5} | {row[2]:>12.2f} | {row[3]:>15,.0f} | {row[4]:>12}")
-    
-    print("\nASK SIDE (Resistance):")
-    print(f"{'Level':>5} | {'Avg Orders':>12} | {'Avg Quantity':>15} | {'Snapshots':>12}")
-    print(f"{'-'*60}")
-    
-    for row in results:
-        if row[1] == 'ask':
-            print(f"{row[0]:>5} | {row[2]:>12.2f} | {row[3]:>15,.0f} | {row[4]:>12}")
+    if ask_results:
+        print("\nASK SIDE (Resistance):")
+        print(f"{'Level':>5} | {'Avg Orders':>12} | {'Avg Quantity':>15} | {'Snapshots':>12}")
+        print(f"{'-'*60}")
+        for row in ask_results:
+            print(f"{row[0]:>5} | {row[1]:>12.2f} | {row[2]:>15,.0f} | {row[3]:>12}")
+    else:
+        print("\nASK SIDE (Resistance): No data available")
 
 def main():
     conn = get_db_connection()
@@ -324,7 +355,7 @@ def main():
         print(f"{'='*100}")
         
         # 1. Show recent order flow
-        analyze_order_flow_snapshots(conn, num_snapshots=30)
+        analyze_order_flow_snapshots(conn, num_snapshots=50)
         
         # 2. Track level evolution (sample every 60 seconds)
         track_level_evolution(conn, sample_interval_seconds=60)
