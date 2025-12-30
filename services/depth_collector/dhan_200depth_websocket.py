@@ -376,57 +376,70 @@ def on_message(ws, message):
                     ws.close()
                     return
             
-            # Check for 20-level depth packet (332 bytes per side)
-            if len(message) == PACKET_SIZE:
-                response_code = message[2]
+            # Check for 20-level depth packet(s) - packets can be stacked (332, 664, 1328, etc bytes)
+            if len(message) % PACKET_SIZE == 0 and len(message) >= PACKET_SIZE:
+                # Process each 332-byte packet in the message
+                num_packets = len(message) // PACKET_SIZE
                 
-                if response_code == RESPONSE_BID_DEPTH:
-                    # Got BID packet
-                    bid_depth = parse_depth_packet_20(message)
-                    if bid_depth:
-                        pending_bid_depth = bid_depth
-                        pending_timestamp = datetime.now(ist).astimezone(pytz.UTC)
-                        print(f"[DEBUG] Stored BID depth, waiting for ASK...")
-                        
-                elif response_code == RESPONSE_ASK_DEPTH:
-                    # Got ASK packet - check if we have matching BID
-                    ask_depth = parse_depth_packet_20(message)
-                    if ask_depth and pending_bid_depth and pending_timestamp:
-                        # We have a complete snapshot!
-                        save_depth_levels_to_db(db_cursor, pending_bid_depth, ask_depth, pending_timestamp, int(SECURITY_ID))
-                        
-                        # Publish to Redis for signal-generator
-                        if redis_client:
-                            try:
-                                current_price = pending_bid_depth[0]['price']  # Use best bid as current price
-                                snapshot_data = {
-                                    'timestamp': pending_timestamp.isoformat(),
-                                    'current_price': current_price,
-                                    'bids': [{'price': lvl['price'], 'quantity': lvl['quantity'], 'orders': lvl['orders']} 
-                                            for lvl in pending_bid_depth],
-                                    'asks': [{'price': lvl['price'], 'quantity': lvl['quantity'], 'orders': lvl['orders']} 
-                                            for lvl in ask_depth]
-                                }
-                                redis_client.publish('depth_snapshots:NIFTY', json.dumps(snapshot_data))
-                            except Exception as redis_error:
-                                if snapshot_count % 1000 == 0:
-                                    print(f"Redis publish error: {redis_error}")
-                        
-                        snapshot_count += 1
-                        
-                        # Print progress every 100 snapshots
-                        if snapshot_count % 100 == 0:
-                            timestamp_str = datetime.now(ist).strftime('%H:%M:%S')
-                            best_bid = pending_bid_depth[0]['price']
-                            best_ask = ask_depth[0]['price']
-                            spread = best_ask - best_bid
-                            print(f"[{timestamp_str}] Snapshots: {snapshot_count}, "
-                                  f"Bid: ₹{best_bid:,.2f}, "
-                              f"Ask: ₹{best_ask:,.2f}, "
-                              f"Spread: ₹{spread:.2f}")
+                for i in range(num_packets):
+                    offset = i * PACKET_SIZE
+                    packet = message[offset:offset + PACKET_SIZE]
+                    response_code = packet[2]
+                    
+                    if response_code == RESPONSE_BID_DEPTH:
+                        # Got BID packet
+                        bid_depth = parse_depth_packet_20(packet)
+                        if bid_depth:
+                            pending_bid_depth = bid_depth
+                            pending_timestamp = datetime.now(ist).astimezone(pytz.UTC)
+                            
+                    elif response_code == RESPONSE_ASK_DEPTH:
+                        # Got ASK packet - check if we have matching BID
+                        ask_depth = parse_depth_packet_20(packet)
+                        if ask_depth and pending_bid_depth and pending_timestamp:
+                            # We have a complete snapshot!
+                            save_depth_levels_to_db(db_cursor, pending_bid_depth, ask_depth, pending_timestamp, int(SECURITY_ID))
+                            
+                            # Publish to Redis for signal-generator
+                            if redis_client:
+                                try:
+                                    current_price = pending_bid_depth[0]['price']
+                                    snapshot_data = {
+                                        'timestamp': pending_timestamp.isoformat(),
+                                        'current_price': current_price,
+                                        'bids': [{'price': lvl['price'], 'quantity': lvl['quantity'], 'orders': lvl['orders']} 
+                                                for lvl in pending_bid_depth],
+                                        'asks': [{'price': lvl['price'], 'quantity': lvl['quantity'], 'orders': lvl['orders']} 
+                                                for lvl in ask_depth]
+                                    }
+                                    redis_client.publish('depth_snapshots:NIFTY', json.dumps(snapshot_data))
+                                except Exception as redis_error:
+                                    if snapshot_count % 1000 == 0:
+                                        print(f"Redis publish error: {redis_error}")
+                            
+                            snapshot_count += 1
+                            
+                            # Print progress every 100 snapshots
+                            if snapshot_count % 100 == 0:
+                                timestamp_str = datetime.now(ist).strftime('%H:%M:%S')
+                                best_bid = pending_bid_depth[0]['price']
+                                best_ask = ask_depth[0]['price']
+                                spread = best_ask - best_bid
+                                print(f"[{timestamp_str}] Snapshots: {snapshot_count}, "
+                                      f"Bid: ₹{best_bid:,.2f}, "
+                                      f"Ask: ₹{best_ask:,.2f}, "
+                                      f"Spread: ₹{spread:.2f}")
+                            
+                            # Clear the buffer
+                            pending_bid_depth = None
+                            pending_ask_depth = None
+                            pending_timestamp = None
+                        pending_bid_depth = None
+                        pending_ask_depth = None
+                        pending_timestamp = None
             else:
-                print(f"[DEBUG] Unexpected message length: {len(message)} bytes (expected 6424 for 200-level)")
-                # Dump first 20 bytes in hex for analysis
+                # Not standard packet size - could be multiple instruments stacked
+                print(f"[DEBUG] Non-standard message length: {len(message)} bytes")
                 hex_dump = ' '.join(f'{b:02x}' for b in message[:min(20, len(message))])
                 print(f"[DEBUG] First bytes (hex): {hex_dump}")
         else:
