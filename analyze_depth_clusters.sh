@@ -4,8 +4,8 @@
 
 echo "Connecting to database..."
 
-# Get database password
-DB_PASSWORD=${DB_PASSWORD:-tradingpass}
+# Use docker exec to run psql inside TimescaleDB container
+PSQL_CMD="docker exec tradingapp-timescaledb psql -U tradinguser -d tradingdb"
 
 echo ""
 echo "================================================================================"
@@ -15,7 +15,7 @@ echo ""
 
 # Get time range and data count
 echo "Data Summary:"
-psql -h localhost -U tradinguser -d tradingdb << EOF
+$PSQL_CMD << EOF
 SELECT 
     'First Record: ' || MIN(time)::text,
     'Last Record: ' || MAX(time)::text,
@@ -28,7 +28,7 @@ EOF
 
 echo ""
 echo "Global Statistics:"
-psql -h localhost -U tradinguser -d tradingdb << EOF
+$PSQL_CMD << EOF
 SELECT 
     'Average Orders per Level: ' || AVG(orders)::numeric(10,1)::text,
     'Max Orders Seen: ' || MAX(orders)::text,
@@ -45,7 +45,7 @@ echo "==========================================================================
 echo ""
 
 # Find top price clusters
-psql -h localhost -U tradinguser -d tradingdb << EOF
+$PSQL_CMD << EOF
 WITH price_clusters AS (
     SELECT 
         ROUND(price * 2) / 2 as price_level,
@@ -85,7 +85,7 @@ echo "==========================================================================
 echo ""
 
 # Get current price and nearby levels
-psql -h localhost -U tradinguser -d tradingdb << EOF
+$PSQL_CMD << EOF
 WITH current_price AS (
     SELECT (best_bid + best_ask) / 2.0 as mid_price
     FROM depth_200_snapshots
