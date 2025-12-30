@@ -46,7 +46,9 @@ fi
 echo -e "${GREEN}✓ .env exists${NC}"
 
 # Check critical env vars
-export $(cat .env | grep -v '^#' | xargs)
+set -a
+source .env
+set +a
 if [[ "$DB_HOST" == "pgbouncer" ]] || [[ "$DB_HOST" == "timescaledb" ]]; then
     echo -e "${RED}✗ DB_HOST still set to Docker service name: $DB_HOST${NC}"
     echo "Update .env: DB_HOST=localhost"
