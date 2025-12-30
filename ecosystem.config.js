@@ -1,3 +1,26 @@
+// Helper to load .env file and return as object
+const fs = require('fs');
+const path = require('path');
+
+function loadEnv() {
+  const envPath = path.join(__dirname, '.env');
+  const envFile = fs.readFileSync(envPath, 'utf8');
+  const env = {};
+  
+  envFile.split('\n').forEach(line => {
+    line = line.trim();
+    if (!line || line.startsWith('#')) return;
+    const [key, ...valueParts] = line.split('=');
+    if (key && valueParts.length) {
+      env[key.trim()] = valueParts.join('=').trim();
+    }
+  });
+  
+  return env;
+}
+
+const envVars = loadEnv();
+
 module.exports = {
   apps: [
     {
@@ -18,8 +41,8 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '500M',
-      env_file: '/opt/tradingapp/.env',
       env: {
+        ...envVars,
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp'
       },
@@ -50,8 +73,8 @@ module.exports = {
       max_restarts: 5,
       min_uptime: '10s',
       restart_delay: 4000,
-      env_file: '/opt/tradingapp/.env',
       env: {
+        ...envVars,
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp'
       },
@@ -79,8 +102,8 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '1G',
-      env_file: '/opt/tradingapp/.env',
       env: {
+        ...envVars,
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp',
         WORKER_ID: '1'
@@ -109,8 +132,8 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '1G',
-      env_file: '/opt/tradingapp/.env',
       env: {
+        ...envVars,
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp',
         WORKER_ID: '2'
@@ -139,8 +162,8 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '1G',
-      env_file: '/opt/tradingapp/.env',
       env: {
+        ...envVars,
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp',
         WORKER_ID: '3'
@@ -172,8 +195,8 @@ module.exports = {
       max_restarts: 5,
       min_uptime: '10s',
       restart_delay: 4000,
-      env_file: '/opt/tradingapp/.env',
       env: {
+        ...envVars,
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp'
       },
@@ -201,8 +224,8 @@ module.exports = {
         '.git'
       ],
       max_memory_restart: '500M',
-      env_file: '/opt/tradingapp/.env',
       env: {
+        ...envVars,
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: '/opt/tradingapp'
       },
