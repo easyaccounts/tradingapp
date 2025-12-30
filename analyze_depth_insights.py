@@ -175,7 +175,7 @@ def find_strongest_levels(bids, asks, top_n=3):
     
     return top_bids, top_asks
 
-def track_level_evolution(conn, sample_interval_seconds=60, current_price=None):
+def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
     """Track how key price levels evolve over time"""
     snapshots = get_snapshots(conn)
     
@@ -192,7 +192,7 @@ def track_level_evolution(conn, sample_interval_seconds=60, current_price=None):
             last_time = ts
     
     print(f"\n{'='*100}")
-    print(f"LEVEL EVOLUTION TRACKING - {len(sampled)} snapshots sampled every {sample_interval_seconds}s")
+    print(f"LEVEL EVOLUTION TRACKING - {len(sampled)} sample points at {sample_interval_seconds}-second intervals")
     print(f"{'='*100}\n")
     
     # Track each price level's order count over time
@@ -243,8 +243,8 @@ def track_level_evolution(conn, sample_interval_seconds=60, current_price=None):
                     'history': history
                 })
     
-    # Sort by max orders
-    persistent_levels.sort(key=lambda x: x['max_orders'], reverse=True)
+    # Sort by average quantity (highest volume levels)
+    persistent_levels.sort(key=lambda x: x['avg_quantity'], reverse=True)
     
     print(f"PERSISTENT LEVELS (appeared in ≥{int(persistent_threshold)} snapshots with ≥5 orders peak):")
     print(f"{'-'*100}")
@@ -621,8 +621,8 @@ def main():
         # 1. Show recent order flow
         analyze_order_flow_snapshots(conn, num_snapshots=50)
         
-        # 2. Track level evolution (sample every 60 seconds)
-        level_history, persistent_levels = track_level_evolution(conn, sample_interval_seconds=60, current_price=current_price)
+        # 2. Track level evolution (sample every 10 seconds)
+        level_history, persistent_levels = track_level_evolution(conn, sample_interval_seconds=10, current_price=current_price)
         
         # 3. Show average depth profile
         analyze_depth_profile(conn)
