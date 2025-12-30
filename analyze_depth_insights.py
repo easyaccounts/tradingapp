@@ -579,6 +579,12 @@ def main():
         # Get current price
         current_price, best_bid, best_ask = get_current_price(conn)
         
+        # Get timestamp of current price
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(time) FROM depth_levels_200 WHERE time::date = CURRENT_DATE")
+        latest_time = cur.fetchone()[0]
+        cur.close()
+        
         # Load previous state
         previous_state = load_previous_state()
         
@@ -589,8 +595,11 @@ def main():
         print(f"MARKET DEPTH ANALYSIS - {now.strftime('%Y-%m-%d %H:%M:%S')} IST")
         print(f"{'='*100}")
         
-        if current_price:
+        if current_price and latest_time:
+            # Convert UTC to IST for display
+            ist_time = latest_time + timedelta(hours=5, minutes=30)
             print(f"CURRENT PRICE: ₹{current_price:.2f} (Bid: ₹{best_bid:.2f} | Ask: ₹{best_ask:.2f})")
+            print(f"as of {ist_time.strftime('%Y-%m-%d %H:%M:%S')} IST ({latest_time.strftime('%H:%M:%S')} UTC)")
             if previous_state and previous_state.get('price'):
                 prev_price = previous_state['price']
                 price_change = current_price - prev_price
