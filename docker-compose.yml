@@ -124,18 +124,6 @@ services:
     networks:
       - tradingapp-network
 
-  # Frontend - Static HTML served by Nginx
-  frontend:
-    build:
-      context: ./services/frontend
-      dockerfile: Dockerfile
-    container_name: tradingapp-frontend
-    ports:
-      - "3001:80"
-    restart: unless-stopped
-    networks:
-      - tradingapp-network
-
   # Ingestion Service - KiteConnect WebSocket handler
   ingestion:
     build:
@@ -327,16 +315,16 @@ services:
     networks:
       - tradingapp-network
 
-  # Nginx - Reverse proxy
+  # Nginx - Reverse proxy and static file server
   nginx:
     image: nginx:alpine
     container_name: tradingapp-nginx
     volumes:
       - ./config/nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./services/frontend/public:/usr/share/nginx/html:ro
       - ./ssl:/etc/nginx/ssl
     depends_on:
       - api
-      - frontend
     ports:
       - "80:80"
       - "443:443"
