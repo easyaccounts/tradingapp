@@ -208,7 +208,12 @@ def parse_depth_packet_20(data):
         depth_data = []
         offset = 12
         
-        for i in range(min(header['num_rows'], DEPTH_LEVELS)):
+        # Calculate max levels based on available data (320 bytes / 16 per level = 20 max)
+        # Use num_rows if available, otherwise parse all available levels
+        max_levels_in_packet = (len(data) - 12) // 16  # How many 16-byte levels fit
+        levels_to_parse = header['num_rows'] if header['num_rows'] > 0 else min(max_levels_in_packet, DEPTH_LEVELS)
+        
+        for i in range(levels_to_parse):
             if offset + 16 > len(data):
                 print(f"[WARN] Not enough data for level {i+1}, offset={offset}, len={len(data)}")
                 break
