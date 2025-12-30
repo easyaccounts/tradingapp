@@ -17,14 +17,14 @@ echo "Updating .env for PM2 (localhost connections)..."
 # Update host names
 sed -i 's/DB_HOST=pgbouncer/DB_HOST=localhost/' .env
 sed -i 's/DB_HOST=timescaledb/DB_HOST=localhost/' .env
+sed -i 's/DB_PORT=5432/DB_PORT=6432/' .env
 sed -i 's/REDIS_HOST=redis/REDIS_HOST=localhost/' .env
 sed -i 's/RABBITMQ_HOST=rabbitmq/RABBITMQ_HOST=localhost/' .env
 
 # Update connection strings
-sed -i 's/@pgbouncer:/@localhost:6432\//' .env
-sed -i 's/@timescaledb:/@localhost:5432\//' .env
-sed -i 's/@redis:/@localhost:/' .env
-sed -i 's/@rabbitmq:/@localhost:/' .env
+sed -i 's/@pgbouncer:5432/@localhost:6432/' .env
+sed -i 's/@redis:6379/@localhost:6379/' .env
+sed -i 's/@rabbitmq:5672/@localhost:5672/' .env
 
 # Show changes
 echo ""
@@ -37,12 +37,13 @@ echo ""
 echo "✓ .env updated for PM2"
 echo ""
 echo "Verify these settings:"
-grep "DB_HOST=" .env
-grep "REDIS_HOST=" .env
-grep "RABBITMQ_HOST=" .env
-grep "DATABASE_URL=" .env
-grep "REDIS_URL=" .env
-grep "RABBITMQ_URL=" .env
+grep "^DB_HOST=" .env
+grep "^DB_PORT=" .env
+grep "^REDIS_HOST=" .env
+grep "^RABBITMQ_HOST=" .env
+grep "^DATABASE_URL=" .env
+grep "^REDIS_URL=" .env
+grep "^RABBITMQ_URL=" .env
 
 echo ""
 echo "Backup saved at: .env.docker.backup"
