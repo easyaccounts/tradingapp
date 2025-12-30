@@ -228,6 +228,8 @@ def track_level_evolution(conn, sample_interval_seconds=60, current_price=None):
         if len(history) >= persistent_threshold:
             max_orders = max(h['orders'] for h in history)
             avg_orders = sum(h['orders'] for h in history) / len(history)
+            max_quantity = max(h['quantity'] for h in history)
+            avg_quantity = sum(h['quantity'] for h in history) / len(history)
             
             if max_orders >= 5:  # At least hit 5 orders at some point
                 persistent_levels.append({
@@ -236,6 +238,8 @@ def track_level_evolution(conn, sample_interval_seconds=60, current_price=None):
                     'appearances': len(history),
                     'max_orders': max_orders,
                     'avg_orders': avg_orders,
+                    'max_quantity': max_quantity,
+                    'avg_quantity': avg_quantity,
                     'history': history
                 })
     
@@ -271,6 +275,7 @@ def track_level_evolution(conn, sample_interval_seconds=60, current_price=None):
         print(f"₹{level['price']:>10.2f} {side_label:>10} | Peak: {level['max_orders']:>2} orders | "
               f"Avg: {level['avg_orders']:>4.1f} | Seen: {level['appearances']:>3}x | "
               f"{first_seen} → {last_seen}")
+        print(f"  Qty: Peak {level['max_quantity']:,} | Avg {level['avg_quantity']:,.0f}")
         print(f"  {signal}")
         
         # Show distance from current price
