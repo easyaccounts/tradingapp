@@ -8,7 +8,7 @@ load_dotenv()
 
 ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN')
 CLIENT_ID = os.getenv('DHAN_CLIENT_ID')
-SECURITY_ID = '49229'  # NIFTY JAN 2026 FUT
+SECURITY_ID = '49543'  # NIFTY DEC 2025 FUT (yesterday's working instrument)
 
 print(f"ACCESS_TOKEN: {ACCESS_TOKEN[:20]}..." if ACCESS_TOKEN else "None")
 print(f"CLIENT_ID: {CLIENT_ID}")
