@@ -6,6 +6,7 @@ Handles Dhan OAuth flow and token management
 import os
 import logging
 from typing import Optional
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
@@ -19,6 +20,9 @@ router = APIRouter()
 # Initialize Redis client
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client = redis.from_url(redis_url, decode_responses=True)
+
+# Slack webhook
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 # Dhan API Configuration
 DHAN_API_KEY = os.getenv("DHAN_API_KEY")
@@ -66,6 +70,62 @@ def write_token_to_file(access_token: str, expiry: str):
         logger.info(f"Access token written to {TOKEN_FILE_PATH}")
     except Exception as e:
         logger.error(f"Failed to write token to file: {e}")
+
+
+def send_token_notification(provider: str, client_name: str, expiry: str):
+    """Send Slack notification when token is saved"""
+    if not SLACK_WEBHOOK_URL:
+        logger.warning("SLACK_WEBHOOK_URL not set, skipping notification")
+        return
+    
+    try:
+        now = datetime.now()
+        
+        # Parse expiry from Dhan format (e.g., "2025-01-31 23:59:59")
+        try:
+            expiry_dt = datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S") if expiry else now + timedelta(days=30)
+            time_remaining = expiry_dt - now
+            days_remaining = time_remaining.days
+            hours_remaining = time_remaining.seconds // 3600
+        except:
+            days_remaining = "Unknown"
+            hours_remaining = ""
+        
+        valid_for = f"{days_remaining} days" if isinstance(days_remaining, int) else days_remaining
+        if isinstance(days_remaining, int) and days_remaining == 0:
+            valid_for = f"{hours_remaining} hours"
+        
+        message = {
+            "text": f"✅ *{provider} Token Saved*",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*{provider} Authentication Successful*"
+                    }
+                },
+                {
+                    "type": "section",
+                    "fields": [
+                        {"type": "mrkdwn", "text": f"*Provider:*\n{provider}"},
+                        {"type": "mrkdwn", "text": f"*Client:*\n{client_name}"},
+                        {"type": "mrkdwn", "text": f"*Saved At:*\n{now.strftime('%Y-%m-%d %H:%M:%S IST')}"},
+                        {"type": "mrkdwn", "text": f"*Expires At:*\n{expiry or 'N/A'}"},
+                        {"type": "mrkdwn", "text": f"*Valid For:*\n{valid_for}"},
+                        {"type": "mrkdwn", "text": f"*Token File:*\n`{TOKEN_FILE_PATH}`"}
+                    ]
+                }
+            ]
+        }
+        
+        response = requests.post(SLACK_WEBHOOK_URL, json=message, timeout=5)
+        if response.status_code == 200:
+            logger.info(f"Token notification sent to Slack for {provider}")
+        else:
+            logger.error(f"Slack notification failed: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Failed to send Slack notification: {e}")
 
 
 def read_token_from_file() -> Optional[dict]:
@@ -221,6 +281,9 @@ async def dhan_callback(
         
         # Store access_token in file (persisted)
         write_token_to_file(access_token, expiry_time)
+        
+        # Send Slack notification
+        send_token_notification("Dhan", client_name, expiry_time)
         
         # Also store in Redis for caching
         try:

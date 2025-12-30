@@ -6,11 +6,13 @@ Handles KiteConnect OAuth flow and token management
 import os
 import logging
 from typing import Optional
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from kiteconnect import KiteConnect
 import redis
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,9 @@ router = APIRouter()
 # Initialize Redis client
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client = redis.from_url(redis_url, decode_responses=True)
+
+# Slack webhook
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 # Initialize KiteConnect
 KITE_API_KEY = os.getenv("KITE_API_KEY")
@@ -53,6 +58,49 @@ def write_token_to_file(token: str):
         logger.info(f"Access token written to {TOKEN_FILE_PATH}")
     except Exception as e:
         logger.error(f"Failed to write token to file: {e}")
+
+
+def send_token_notification(provider: str, user_id: str = None):
+    """Send Slack notification when token is saved"""
+    if not SLACK_WEBHOOK_URL:
+        logger.warning("SLACK_WEBHOOK_URL not set, skipping notification")
+        return
+    
+    try:
+        now = datetime.now()
+        expiry = now + timedelta(seconds=TOKEN_EXPIRY_SECONDS)
+        
+        message = {
+            "text": f"✅ *{provider} Token Saved*",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*{provider} Authentication Successful*"
+                    }
+                },
+                {
+                    "type": "section",
+                    "fields": [
+                        {"type": "mrkdwn", "text": f"*Provider:*\n{provider}"},
+                        {"type": "mrkdwn", "text": f"*User:*\n{user_id or 'N/A'}"},
+                        {"type": "mrkdwn", "text": f"*Saved At:*\n{now.strftime('%Y-%m-%d %H:%M:%S IST')}"},
+                        {"type": "mrkdwn", "text": f"*Expires At:*\n{expiry.strftime('%Y-%m-%d %H:%M:%S IST')}"},
+                        {"type": "mrkdwn", "text": f"*Valid For:*\n24 hours"},
+                        {"type": "mrkdwn", "text": f"*Token File:*\n`{TOKEN_FILE_PATH}`"}
+                    ]
+                }
+            ]
+        }
+        
+        response = requests.post(SLACK_WEBHOOK_URL, json=message, timeout=5)
+        if response.status_code == 200:
+            logger.info(f"Token notification sent to Slack for {provider}")
+        else:
+            logger.error(f"Slack notification failed: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Failed to send Slack notification: {e}")
 
 
 def read_token_from_file() -> Optional[str]:
@@ -134,10 +182,14 @@ async def kite_callback(
         )
         
         access_token = data["access_token"]
+        user_id = data.get("user_id", "unknown")
         logger.info("Successfully obtained access token")
         
         # Store access_token in file (persisted)
         write_token_to_file(access_token)
+        
+        # Send Slack notification
+        send_token_notification("Kite", user_id)
         
         # Also store in Redis for scripts and caching
         try:
