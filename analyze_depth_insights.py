@@ -478,9 +478,13 @@ def generate_key_insights(conn, current_price, persistent_levels):
     supports = [l for l in persistent_levels if l['side'] == 'bid' and l['price'] < current_price]
     resistances = [l for l in persistent_levels if l['side'] == 'ask' and l['price'] > current_price]
     
-    # Sort by proximity to current price
-    supports.sort(key=lambda x: current_price - x['price'])  # Closest first
-    resistances.sort(key=lambda x: x['price'] - current_price)  # Closest first
+    # Sort by strength (max_orders, then appearances), not just proximity
+    # Also filter to be within reasonable range (±50 points)
+    supports = [s for s in supports if current_price - s['price'] <= 50]
+    resistances = [r for r in resistances if r['price'] - current_price <= 50]
+    
+    supports.sort(key=lambda x: (x['max_orders'], x['appearances']), reverse=True)  # Strongest first
+    resistances.sort(key=lambda x: (x['max_orders'], x['appearances']), reverse=True)  # Strongest first
     
     nearest_support = supports[0] if supports else None
     nearest_resistance = resistances[0] if resistances else None
