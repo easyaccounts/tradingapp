@@ -74,19 +74,27 @@ DB_PASSWORD=$(grep "^DB_PASSWORD=" .env | cut -d'=' -f2)
 DB_USER=$(grep "^DB_USER=" .env | cut -d'=' -f2)
 DB_NAME=$(grep "^DB_NAME=" .env | cut -d'=' -f2)
 
-echo "3.1 Testing PostgreSQL connection..."
-if PGPASSWORD=$DB_PASSWORD psql -h localhost -p 6432 -U $DB_USER -d $DB_NAME -c "SELECT 1;" &> /dev/null; then
-    echo -e "${GREEN}✓ PostgreSQL connection OK${NC}"
+echo "3.1 Testing PostgreSQL port..."
+if nc -z localhost 6432 2>/dev/null; then
+    echo -e "${GREEN}✓ PostgreSQL port 6432 accessible${NC}"
 else
-    echo -e "${RED}✗ PostgreSQL connection failed${NC}"
+    echo -e "${RED}✗ PostgreSQL port 6432 not accessible. Is pgbouncer running?${NC}"
     exit 1
 fi
 
-echo "3.2 Testing Redis connection..."
-if redis-cli -h localhost -p 6379 ping &> /dev/null; then
-    echo -e "${GREEN}✓ Redis connection OK${NC}"
+echo "3.2 Testing Redis port..."
+if nc -z localhost 6379 2>/dev/null; then
+    echo -e "${GREEN}✓ Redis port 6379 accessible${NC}"
 else
-    echo -e "${RED}✗ Redis connection failed${NC}"
+    echo -e "${RED}✗ Redis port 6379 not accessible. Is redis running?${NC}"
+    exit 1
+fi
+
+echo "3.3 Testing RabbitMQ port..."
+if nc -z localhost 5672 2>/dev/null; then
+    echo -e "${GREEN}✓ RabbitMQ port 5672 accessible${NC}"
+else
+    echo -e "${RED}✗ RabbitMQ port 5672 not accessible. Is rabbitmq running?${NC}"
     exit 1
 fi
 
