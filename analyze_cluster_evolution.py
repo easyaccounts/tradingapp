@@ -52,6 +52,18 @@ def get_clusters_for_window(conn, start_time, end_time, top_n=10):
     """Get top price clusters for a specific time window"""
     cursor = conn.cursor()
     
+    # Debug: Check raw data in this window
+    cursor.execute("""
+        SELECT side, COUNT(*), AVG(orders), MAX(orders)
+        FROM depth_levels_200
+        WHERE time >= %s AND time < %s AND price > 0
+        GROUP BY side
+    """, (start_time, end_time))
+    debug_rows = cursor.fetchall()
+    if debug_rows:
+        for row in debug_rows:
+            print(f"  DEBUG [{start_time.strftime('%H:%M')}]: {row[0].upper()} - {row[1]} records, avg orders={row[2]:.2f}, max={row[3]}")
+    
     query = """
     WITH window_data AS (
         SELECT 
@@ -63,8 +75,9 @@ def get_clusters_for_window(conn, start_time, end_time, top_n=10):
             COUNT(*) as appearances
         FROM depth_levels_200
         WHERE time >= %s AND time < %s
+          AND price > 0
         GROUP BY price_level, side
-        HAVING AVG(orders) >= 2
+        HAVING AVG(orders) >= 1
     )
     SELECT 
         price_level,
