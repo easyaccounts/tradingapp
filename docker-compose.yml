@@ -83,48 +83,7 @@ services:
     networks:
       - tradingapp-network
 
-  # FastAPI - REST API service
-  api:
-    build:
-      context: ./services/api
-      dockerfile: Dockerfile
-    container_name: tradingapp-api
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      RABBITMQ_URL: ${RABBITMQ_URL}
-      KITE_API_KEY: ${KITE_API_KEY}
-      KITE_API_SECRET: ${KITE_API_SECRET}
-      KITE_REDIRECT_URL: ${KITE_REDIRECT_URL}
-      DHAN_API_KEY: ${DHAN_API_KEY}
-      DHAN_API_SECRET: ${DHAN_API_SECRET}
-      DHAN_CLIENT_ID: ${DHAN_CLIENT_ID}
-      DHAN_REDIRECT_URL: ${DHAN_REDIRECT_URL}
-      DOMAIN: ${DOMAIN}
-      ENVIRONMENT: ${ENVIRONMENT}
-      LOG_LEVEL: ${LOG_LEVEL}
-    volumes:
-      - tokendata:/app/data
-    depends_on:
-      pgbouncer:
-        condition: service_started
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    ports:
-      - "8000:8000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    restart: unless-stopped
-    networks:
-      - tradingapp-network
-
-  # Ingestion Service - KiteConnect WebSocket handler
+  # Ingestion Service - KiteConnect WebSocket handler (DISABLED - runs via PM2)
   ingestion:
     build:
       context: ./services/ingestion
@@ -325,8 +284,6 @@ services:
       - ./ssl:/etc/nginx/ssl
     extra_hosts:
       - "api-host:host-gateway"
-    depends_on:
-      - api
     ports:
       - "80:80"
       - "443:443"
