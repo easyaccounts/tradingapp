@@ -9,6 +9,7 @@ import requests
 import os
 import sys
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -108,7 +109,7 @@ def send_to_slack(message: str) -> bool:
         return False
     
     # Format for Slack - simple text payload (most compatible)
-    ist_now = datetime.now().strftime('%H:%M:%S IST')
+    ist_now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%H:%M:%S IST')
     
     # Truncate if too long (Slack has 3000 char limit for text blocks)
     if len(message) > 2900:
@@ -141,7 +142,7 @@ def main():
     """Run analysis and send KEY INSIGHTS to Slack"""
     
     # Check if during market hours (9:15 AM - 3:30 PM IST)
-    now = datetime.now()
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
     hour, minute = now.hour, now.minute
     
     # Market hours: 9:15 to 15:30 (3:30 PM)
