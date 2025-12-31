@@ -1,12 +1,14 @@
 """
 Volume Profile Analysis by 15-Minute Cumulative Intervals
 Shows cumulative volume and delta from market open through each interval
+Includes orderbook liquidity analysis and key level detection
 """
 import os
 import psycopg2
 from datetime import datetime, date, timedelta
 from collections import defaultdict
 from dotenv import load_dotenv
+import json
 
 load_dotenv()
 
@@ -93,8 +95,121 @@ def calculate_volume_profile(ticks, tick_size=5):
     return dict(profile)
 
 
-def print_interval_stats(interval_name, ticks, profile):
-    """Print statistics for a time interval"""
+def load_orderbook_depth(instrument_token, start_time, end_time, tick_size=5):
+    """Load cumulative orderbook depth for the interval"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    query = """
+        SELECT 
+            price,
+            side,
+            AVG(quantity) as avg_quantity,
+            COUNT(*) as snapshot_count
+        FROM depth_levels_200
+        WHERE security_id = %s
+          AND time >= %s
+          AND time < %s
+        GROUP BY price, side
+        ORDER BY price DESC
+    """
+    
+    cursor.execute(query, (instrument_token, start_time, end_time))
+    rows = cursor.fetchall()
+    
+    depth = defaultdict(lambda: {'bid_depth': 0, 'ask_depth': 0, 'snapshots': 0})
+    
+    for row in rows:
+        price = float(row[0])
+        side = row[1]
+        avg_qty = float(row[2])
+        count = int(row[3])
+        
+        price_level = round(price / tick_size) * tick_size
+        
+        if side == 'BID':
+            depth[price_level]['bid_depth'] += avg_qty
+            depth[price_level]['snapshots'] = max(depth[price_level]['snapshots'], count)
+        elif side == 'ASK':
+            depth[price_level]['ask_depth'] += avg_qty
+            depth[price_level]['snapshots'] = max(depth[price_level]['snapshots'], count)
+    
+    cursor.close()
+    conn.close()
+    
+    return dict(depth)
+
+
+def load_key_levels(instrument_token, start_time, end_time, threshold=0.3):
+    """Load persistent key levels from depth_signals"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    query = """
+        SELECT DISTINCT
+            time,
+            key_levels,
+            absorptions
+        FROM depth_signals
+        WHERE security_id = %s
+          AND time >= %s
+          AND time < %s
+          AND (key_levels IS NOT NULL OR absorptions IS NOT NULL)
+        ORDER BY time DESC
+        LIMIT 50
+    """
+    
+    cursor.execute(query, (instrument_token, start_time, end_time))
+    rows = cursor.fetchall()
+    
+    # Aggregate key levels with strength and duration
+    level_stats = defaultdict(lambda: {'strength': 0, 'count': 0, 'pressure': []})
+    absorptions = []
+    
+    for row in rows:
+        key_levels = row[1] if row[1] else []
+        absorption_data = row[2] if row[2] else []
+        
+        # Process key levels
+        for level_data in key_levels:
+            if isinstance(level_data, dict):
+                price = level_data.get('price')
+                strength = level_data.get('strength', 1)
+                pressure = level_data.get('pressure', 0)
+                
+                if price and abs(pressure) >= threshold:
+                    level_stats[price]['strength'] += strength
+                    level_stats[price]['count'] += 1
+                    level_stats[price]['pressure'].append(pressure)
+        
+        # Process absorptions
+        for absorption in absorption_data:
+            if isinstance(absorption, dict):
+                absorptions.append(absorption)
+    
+    # Calculate average stats
+    key_levels = []
+    for price, stats in level_stats.items():
+        avg_strength = stats['strength'] / stats['count']
+        avg_pressure = sum(stats['pressure']) / len(stats['pressure'])
+        key_levels.append({
+            'price': price,
+            'strength': avg_strength,
+            'pressure': avg_pressure,
+            'occurrences': stats['count']
+        })
+    
+    # Sort by strength
+    key_levels.sort(key=lambda x: x['strength'], reverse=True)
+    
+    cursor.close()
+    conn.close()
+    
+    return key_levels[:10], absorptions  # Top 10 levels
+
+
+def print_interval_stats(interval_name, ticks, profile, orderbook_depth=None, key_levels=None, absorptions=None):
+    """Print statistics for a time interval with orderbook analysis"""
     if not ticks:
         print(f"  No data for this interval")
         return
@@ -170,6 +285,110 @@ def print_interval_stats(interval_name, ticks, profile):
         character = "⚪ Neutral/Balanced"
     
     print(f"\nCharacter: {character}")
+    
+    # === ORDERBOOK ANALYSIS ===
+    if orderbook_depth:
+        print(f"\n{'─'*80}")
+        print("ORDERBOOK LIQUIDITY ANALYSIS")
+        print(f"{'─'*80}")
+        
+        # Calculate liquidity consumption at key price levels
+        consumption_data = []
+        for price in prices:
+            if price in orderbook_depth:
+                traded_vol = profile[price]['total_volume']
+                buy_vol = profile[price]['buy_volume']
+                sell_vol = profile[price]['sell_volume']
+                
+                bid_depth = orderbook_depth[price]['bid_depth']
+                ask_depth = orderbook_depth[price]['ask_depth']
+                total_depth = bid_depth + ask_depth
+                
+                if total_depth > 0:
+                    consumption_pct = (traded_vol / total_depth) * 100
+                    
+                    # Determine consumption type
+                    if buy_vol > sell_vol * 1.5 and ask_depth > 0:
+                        consumption_type = "BUY"
+                        specific_consumption = (buy_vol / ask_depth) * 100 if ask_depth > 0 else 0
+                    elif sell_vol > buy_vol * 1.5 and bid_depth > 0:
+                        consumption_type = "SELL"
+                        specific_consumption = (sell_vol / bid_depth) * 100 if bid_depth > 0 else 0
+                    else:
+                        consumption_type = "MIXED"
+                        specific_consumption = consumption_pct
+                    
+                    consumption_data.append({
+                        'price': price,
+                        'consumption': specific_consumption,
+                        'type': consumption_type,
+                        'traded_vol': traded_vol,
+                        'available_depth': total_depth,
+                        'bid_depth': bid_depth,
+                        'ask_depth': ask_depth
+                    })
+        
+        # Show top consumption levels
+        if consumption_data:
+            consumption_data.sort(key=lambda x: x['consumption'], reverse=True)
+            
+            print("\nTop Liquidity Consumption Levels:")
+            for i, data in enumerate(consumption_data[:5], 1):
+                emoji = "🔴" if data['type'] == "SELL" else "🟢" if data['type'] == "BUY" else "⚪"
+                print(f"  {i}. ₹{data['price']:.2f} - {emoji} {data['consumption']:.1f}% consumed "
+                      f"({data['traded_vol']:,.0f} traded / {data['available_depth']:,.0f} available)")
+            
+            # Find walls (high depth, low consumption)
+            walls = [d for d in consumption_data if d['consumption'] < 20 and d['available_depth'] > total_vol * 0.05]
+            if walls:
+                print("\nLiquidity Walls (High Depth, Low Consumption):")
+                for wall in walls[:3]:
+                    side = "BID" if wall['bid_depth'] > wall['ask_depth'] else "ASK"
+                    depth_val = max(wall['bid_depth'], wall['ask_depth'])
+                    emoji = "🟢" if side == "BID" else "🔴"
+                    print(f"  {emoji} ₹{wall['price']:.2f} - {side} Wall: {depth_val:,.0f} contracts "
+                          f"(only {wall['consumption']:.1f}% consumed)")
+    
+    # === KEY LEVELS FROM ORDERBOOK ===
+    if key_levels:
+        print(f"\n{'─'*80}")
+        print("PERSISTENT KEY LEVELS (from orderbook)")
+        print(f"{'─'*80}")
+        
+        # Match key levels with POC and price action
+        for i, level in enumerate(key_levels[:5], 1):
+            price_diff = abs(level['price'] - poc_price)
+            current_price_diff = abs(level['price'] - end_price)
+            
+            # Determine level type
+            pressure_type = "🔴 RESISTANCE" if level['pressure'] < 0 else "🟢 SUPPORT"
+            
+            # Check if near POC or current price
+            tags = []
+            if price_diff < 10:
+                tags.append("MATCHES POC")
+            if current_price_diff < 10:
+                tags.append("NEAR CURRENT")
+            
+            tag_str = f" [{', '.join(tags)}]" if tags else ""
+            
+            print(f"  {i}. ₹{level['price']:.2f} - {pressure_type} "
+                  f"(Strength: {level['strength']:.1f}x, Seen: {level['occurrences']}x){tag_str}")
+    
+    # === ABSORPTIONS ===
+    if absorptions:
+        print(f"\n{'─'*80}")
+        print("ABSORPTION EVENTS")
+        print(f"{'─'*80}")
+        
+        for i, absorption in enumerate(absorptions[:3], 1):
+            if isinstance(absorption, dict):
+                abs_price = absorption.get('price', 0)
+                abs_type = absorption.get('type', 'unknown')
+                reduction = absorption.get('reduction_pct', 0)
+                
+                print(f"  {i}. ₹{abs_price:.2f} - {abs_type} absorption "
+                      f"({reduction:.1f}% depth reduction, price broke through)")
 
 
 def split_by_intervals(ticks, interval_minutes=15):
@@ -249,14 +468,25 @@ def main():
     
     # Split into intervals
     intervals = split_by_intervals(ticks, args.interval)
-    print(f"✓ Split into {len(intervals)} intervals of {args.interval} minutes")
+    print(f"✓ Split into {len(intervals)} cumulative intervals of {args.interval} minutes")
     
     # Analyze each interval (cumulative from market open)
     market_open = ticks[0]['time']
     for interval_end, interval_ticks in intervals:
         interval_name = f"CUMULATIVE: {market_open.strftime('%H:%M')} → {interval_end.strftime('%H:%M')}"
+        
+        # Calculate volume profile
         profile = calculate_volume_profile(interval_ticks, tick_size=args.tick_size)
-        print_interval_stats(interval_name, interval_ticks, profile)
+        
+        # Load orderbook depth for this cumulative interval
+        print(f"\n  Loading orderbook data...")
+        orderbook_depth = load_orderbook_depth(instrument_token, market_open, interval_end, tick_size=args.tick_size)
+        
+        # Load key levels from depth signals
+        key_levels, absorptions = load_key_levels(instrument_token, market_open, interval_end)
+        
+        # Print combined analysis
+        print_interval_stats(interval_name, interval_ticks, profile, orderbook_depth, key_levels, absorptions)
     
     # Overall summary
     print(f"\n{'='*80}")
