@@ -1,5 +1,5 @@
 """
-Volume Profile Analysis by 30-Minute Intervals
+Volume Profile Analysis by 10-Minute Intervals
 Shows how volume and delta evolved throughout the trading session
 """
 import os
@@ -172,7 +172,7 @@ def print_interval_stats(interval_name, ticks, profile):
     print(f"\nCharacter: {character}")
 
 
-def split_by_intervals(ticks, interval_minutes=30):
+def split_by_intervals(ticks, interval_minutes=10):
     """Split ticks into time intervals"""
     if not ticks:
         return []
@@ -211,12 +211,12 @@ def split_by_intervals(ticks, interval_minutes=30):
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description='Volume Profile by 30-minute intervals')
+    parser = argparse.ArgumentParser(description='Volume Profile by 10-minute intervals')
     parser.add_argument('--instrument', type=int, help='Instrument token (default: from .env)')
     parser.add_argument('--date', type=str, help='Date (YYYY-MM-DD, default: today)')
     parser.add_argument('--tick-size', type=float, default=5, help='Price grouping interval (default: 5)')
     parser.add_argument('--symbol', type=str, help='Trading symbol for display')
-    parser.add_argument('--interval', type=int, default=30, help='Interval in minutes (default: 30)')
+    parser.add_argument('--interval', type=int, default=10, help='Interval in minutes (default: 10)')
     
     args = parser.parse_args()
     
