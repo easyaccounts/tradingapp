@@ -1,7 +1,7 @@
 """
-Volume Profile Analysis by 15-Minute Cumulative Intervals
-Shows cumulative volume and delta from market open through each interval
-Includes orderbook liquidity analysis and key level detection
+Volume Profile Analysis by 5-Minute Discrete Intervals
+Shows volume and orderbook depth patterns in discrete time windows
+Identifies breakthrough moments, contested levels, and walls
 """
 import os
 import psycopg2
@@ -401,31 +401,38 @@ def print_interval_stats(interval_name, ticks, profile, orderbook_depth=None, ke
                       f"({reduction:.1f}% depth reduction, price broke through)")
 
 
-def split_by_intervals(ticks, interval_minutes=15):
-    """Split ticks into cumulative time intervals from market start"""
+def split_by_intervals(ticks, interval_minutes=5):
+    """Split ticks into discrete (non-cumulative) time intervals"""
     if not ticks:
         return []
     
     intervals = []
+    current_interval = []
     
     # Start from first tick's time, rounded down to interval
     first_time = ticks[0]['time']
-    market_open = first_time.replace(minute=(first_time.minute // interval_minutes) * interval_minutes, second=0, microsecond=0)
+    interval_start = first_time.replace(minute=(first_time.minute // interval_minutes) * interval_minutes, second=0, microsecond=0)
     
-    # Find all interval boundaries
-    interval_boundaries = []
-    current_boundary = market_open
-    last_tick_time = ticks[-1]['time']
+    for tick in ticks:
+        # Calculate which interval this tick belongs to
+        tick_interval_start = tick['time'].replace(
+            minute=(tick['time'].minute // interval_minutes) * interval_minutes,
+            second=0,
+            microsecond=0
+        )
+        
+        if tick_interval_start != interval_start:
+            # New interval started
+            if current_interval:
+                intervals.append((interval_start, current_interval))
+            current_interval = [tick]
+            interval_start = tick_interval_start
+        else:
+            current_interval.append(tick)
     
-    while current_boundary <= last_tick_time:
-        current_boundary = current_boundary + timedelta(minutes=interval_minutes)
-        interval_boundaries.append(current_boundary)
-    
-    # Create cumulative intervals - each includes ALL ticks from market open to that boundary
-    for boundary in interval_boundaries:
-        cumulative_ticks = [tick for tick in ticks if tick['time'] < boundary]
-        if cumulative_ticks:
-            intervals.append((boundary, cumulative_ticks))
+    # Don't forget the last interval
+    if current_interval:
+        intervals.append((interval_start, current_interval))
     
     return intervals
 
@@ -433,12 +440,12 @@ def split_by_intervals(ticks, interval_minutes=15):
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description='Volume Profile by 15-minute cumulative intervals')
+    parser = argparse.ArgumentParser(description='Volume Profile by 5-minute discrete intervals')
     parser.add_argument('--instrument', type=int, help='Instrument token (default: from .env)')
     parser.add_argument('--date', type=str, help='Date (YYYY-MM-DD, default: today)')
     parser.add_argument('--tick-size', type=float, default=5, help='Price grouping interval (default: 5)')
     parser.add_argument('--symbol', type=str, help='Trading symbol for display')
-    parser.add_argument('--interval', type=int, default=15, help='Interval in minutes (default: 15)')
+    parser.add_argument('--interval', type=int, default=5, help='Interval in minutes (default: 5)')
     
     args = parser.parse_args()
     
@@ -480,25 +487,100 @@ def main():
     
     # Split into intervals
     intervals = split_by_intervals(ticks, args.interval)
-    print(f"✓ Split into {len(intervals)} cumulative intervals of {args.interval} minutes")
+    print(f"✓ Split into {len(intervals)} intervals of {args.interval} minutes\n")
     
-    # Analyze each interval (cumulative from market open)
-    market_open = ticks[0]['time']
-    for interval_end, interval_ticks in intervals:
-        interval_name = f"CUMULATIVE: {market_open.strftime('%H:%M')} → {interval_end.strftime('%H:%M')}"
+    print("Loading orderbook data for all intervals...")
+    
+    # Analyze each interval and collect data
+    interval_data = []
+    for interval_start, interval_ticks in intervals:
+        if not interval_ticks:
+            continue
+            
+        interval_end = interval_start + timedelta(minutes=args.interval)
         
-        # Calculate volume profile
+        # Calculate metrics
         profile = calculate_volume_profile(interval_ticks, tick_size=args.tick_size)
+        orderbook_depth = load_orderbook_depth(depth_token, interval_start, interval_end, tick_size=args.tick_size)
         
-        # Load orderbook depth for this cumulative interval (uses depth_token)
-        print(f"\n  Loading orderbook data...")
-        orderbook_depth = load_orderbook_depth(depth_token, market_open, interval_end, tick_size=args.tick_size)
-        
-        # Load key levels from depth signals (uses depth_token)
-        key_levels, absorptions = load_key_levels(depth_token, market_open, interval_end)
-        
-        # Print combined analysis
-        print_interval_stats(interval_name, interval_ticks, profile, orderbook_depth, key_levels, absorptions)
+        # Get top volume price level
+        if profile:
+            prices = sorted(profile.keys())
+            total_volumes = [profile[p]['total_volume'] for p in prices]
+            poc_idx = total_volumes.index(max(total_volumes))
+            poc_price = prices[poc_idx]
+            poc_volume = total_volumes[poc_idx]
+            net_delta = sum(profile[p]['delta'] for p in prices)
+            total_volume = sum(total_volumes)
+            
+            # Get avg depth at POC
+            poc_depth = 0
+            if poc_price in orderbook_depth:
+                poc_depth = orderbook_depth[poc_price]['bid_depth'] + orderbook_depth[poc_price]['ask_depth']
+            
+            # Calculate price movement
+            start_price = interval_ticks[0]['price']
+            end_price = interval_ticks[-1]['price']
+            price_change = end_price - start_price
+            
+            # Classify pattern
+            if total_volume > 0 and poc_depth > 0:
+                vol_to_depth_ratio = poc_volume / poc_depth
+                
+                if vol_to_depth_ratio > 5 and poc_depth < total_volume * 0.05:
+                    pattern = "🔥 BREAKTHROUGH"
+                elif vol_to_depth_ratio > 2 and poc_depth > total_volume * 0.1:
+                    pattern = "⚔️  CONTESTED"
+                elif vol_to_depth_ratio < 0.5 and poc_depth > total_volume * 0.1:
+                    pattern = "🧱 WALL"
+                elif poc_depth < total_volume * 0.02:
+                    pattern = "💨 THIN"
+                else:
+                    pattern = "📊 NORMAL"
+            else:
+                pattern = "📊 NORMAL"
+            
+            interval_data.append({
+                'time': interval_start.strftime('%H:%M'),
+                'price_change': price_change,
+                'volume': total_volume,
+                'delta': net_delta,
+                'poc_price': poc_price,
+                'poc_volume': poc_volume,
+                'poc_depth': poc_depth,
+                'ratio': vol_to_depth_ratio if poc_depth > 0 else 0,
+                'pattern': pattern
+            })
+    
+    # Display table
+    print(f"\n{'='*140}")
+    print(f"INTERVAL ANALYSIS TABLE - {args.interval}-MINUTE PERIODS")
+    print(f"{'='*140}")
+    print(f"{'Time':<8} {'Price Δ':<10} {'Volume':<12} {'Delta':<12} {'POC':<10} {'POC Vol':<12} {'POC Depth':<12} {'Ratio':<8} {'Pattern':<15}")
+    print(f"{'-'*140}")
+    
+    # Calculate outliers based on ratio
+    ratios = [d['ratio'] for d in interval_data if d['ratio'] > 0]
+    if ratios:
+        avg_ratio = sum(ratios) / len(ratios)
+        std_ratio = (sum((r - avg_ratio) ** 2 for r in ratios) / len(ratios)) ** 0.5
+        outlier_threshold = avg_ratio + (2 * std_ratio)
+    else:
+        outlier_threshold = 999
+    
+    for data in interval_data:
+        is_outlier = "⚠️ " if data['ratio'] > outlier_threshold else "  "
+        print(f"{is_outlier}{data['time']:<6} {data['price_change']:>+8.2f}  {data['volume']:<10,.0f}  {data['delta']:>+10,.0f}  "
+              f"₹{data['poc_price']:<8.2f} {data['poc_volume']:<10,.0f}  {data['poc_depth']:<10,.0f}  {data['ratio']:<6.1f}  {data['pattern']:<15}")
+    
+    print(f"{'-'*140}")
+    print(f"\nPattern Legend:")
+    print(f"  🔥 BREAKTHROUGH - High volume, low depth (aggressive consumption)")
+    print(f"  ⚔️  CONTESTED - High volume, high depth (battle between bulls/bears)")
+    print(f"  🧱 WALL - Low volume, high depth (strong barrier, not tested)")
+    print(f"  💨 THIN - Very low depth (illiquid/volatile)")
+    print(f"  📊 NORMAL - Balanced trading")
+    print(f"\n⚠️  = Outlier (consumption ratio > {outlier_threshold:.1f}x)\n")
     
     # Overall summary
     print(f"\n{'='*80}")
