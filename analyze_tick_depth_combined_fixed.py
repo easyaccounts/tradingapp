@@ -115,7 +115,7 @@ def main():
         tick_query = """
             SELECT 
                 DATE_TRUNC('second', time) as second_ist,
-                SUM(volume) as total_volume,
+                SUM(volume_delta) as total_volume,
                 MIN(last_price) as first_price,
                 MAX(last_price) as last_price,
                 COUNT(*) as tick_count
