@@ -125,8 +125,21 @@ def analyze_tick_depth_combined():
     
     print(f"Loaded {len(depth_by_second)} seconds of depth data\n")
     
-    # Step 3: Combine and analyze
-    sorted_seconds = sorted(set(tick_data.keys()) | set(depth_by_second.keys()))
+    # Step 3: Normalize timestamps (remove timezone info for comparison)
+    tick_data_normalized = {}
+    for ts, data in tick_data.items():
+        # Remove timezone info if present
+        ts_naive = ts.replace(tzinfo=None) if hasattr(ts, 'tzinfo') and ts.tzinfo else ts
+        tick_data_normalized[ts_naive] = data
+    
+    depth_normalized = {}
+    for ts, data in depth_by_second.items():
+        # Remove timezone info if present
+        ts_naive = ts.replace(tzinfo=None) if hasattr(ts, 'tzinfo') and ts.tzinfo else ts
+        depth_normalized[ts_naive] = data
+    
+    # Step 4: Combine and analyze
+    sorted_seconds = sorted(set(tick_data_normalized.keys()) | set(depth_normalized.keys()))
     
     if not sorted_seconds:
         print("No data found for this window")
@@ -144,13 +157,13 @@ def analyze_tick_depth_combined():
         time_str = second.strftime('%H:%M:%S')
         
         # Get tick data
-        tick = tick_data.get(second, {})
+        tick = tick_data_normalized.get(second, {})
         price = tick.get('last_price', 0)
         price_change = tick.get('price_change', 0)
         volume = tick.get('volume', 0)
         
         # Get depth data
-        depth = depth_by_second.get(second, {'BID': {}, 'ASK': {}})
+        depth = depth_normalized.get(second, {'BID': {}, 'ASK': {}})
         bid_qty = depth['BID'].get('total_qty', 0)
         ask_qty = depth['ASK'].get('total_qty', 0)
         
