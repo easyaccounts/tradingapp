@@ -49,10 +49,10 @@ def analyze_tick_depth_combined():
             DATE_TRUNC('second', time AT TIME ZONE 'Asia/Kolkata') as second_ist,
             MIN(last_price) as first_price,
             MAX(last_price) as last_price,
-            SUM(volume) as total_volume,
+            SUM(volume_delta) as total_volume,
             COUNT(*) as tick_count
         FROM ticks
-        WHERE security_id = %s
+        WHERE instrument_token = %s
             AND DATE(time AT TIME ZONE 'Asia/Kolkata') = %s
             AND (time AT TIME ZONE 'Asia/Kolkata')::time >= %s::time
             AND (time AT TIME ZONE 'Asia/Kolkata')::time < %s::time
