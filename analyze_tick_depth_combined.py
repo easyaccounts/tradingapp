@@ -61,7 +61,7 @@ def analyze_tick_depth_combined():
     # Step 2: Get tick data (volume traded per second)
     tick_query = """
         SELECT 
-            DATE_TRUNC('second', time) as second_ist,
+            DATE_TRUNC('second', time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') as second_ist,
             MIN(last_price) as first_price,
             MAX(last_price) as last_price,
             SUM(COALESCE(volume_delta, 0)) as total_volume,
@@ -71,7 +71,7 @@ def analyze_tick_depth_combined():
             AND DATE(time) = %s
             AND time::time >= %s::time
             AND time::time < %s::time
-        GROUP BY DATE_TRUNC('second', time)
+        GROUP BY DATE_TRUNC('second', time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
         ORDER BY second_ist
     """
     
