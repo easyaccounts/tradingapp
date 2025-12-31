@@ -20,34 +20,41 @@ def extract_key_insights(output: str) -> str:
     """Extract strongest levels (⭐ ₹) + full KEY INSIGHTS section"""
     lines = output.split('\n')
     
-    # Find the separator line after the legend (-----)
-    separator_idx = None
+    # Find SECOND occurrence of the legend separator (the one before actual levels)
+    # First occurrence is in legend at top, second is before the actual levels list
+    separator_indices = []
     for i, line in enumerate(lines):
-        if line.startswith('---') and i > 0 and '⭐ =' in lines[i-1]:
-            separator_idx = i
-            break
+        if line.startswith('----') and len(line) > 50:  # Long separator line
+            # Check if previous line is the legend
+            if i > 0 and '⭐ =' in lines[i-1]:
+                separator_indices.append(i)
     
-    if separator_idx is None:
-        separator_idx = 0  # Fallback if separator not found
+    # Use the LAST separator found (actual levels section)
+    if len(separator_indices) > 0:
+        separator_idx = separator_indices[-1]
+    else:
+        separator_idx = 0
     
-    # Extract strongest levels starting AFTER the separator
+    # Extract ONLY strongest levels (⭐ ₹) starting after separator
+    # STOP at first non-starred level (starts with spaces + ₹)
     strongest_levels = []
     i = separator_idx + 1
+    
     while i < len(lines):
         line = lines[i]
         
-        # Stop if we hit KEY INSIGHTS
-        if 'KEY INSIGHTS' in line:
+        # Stop if we hit KEY INSIGHTS or a non-starred level
+        if 'KEY INSIGHTS' in line or line.startswith('   ₹'):
             break
             
         # Found a strongest level (⭐ ₹)
         if line.startswith('⭐ ₹'):
             level_lines = [line]
             i += 1
-            # Capture details until next level (starred or non-starred)
+            # Capture details until next level
             while i < len(lines):
                 next_line = lines[i]
-                # Stop at any new level or KEY INSIGHTS
+                # Stop at next starred level, non-starred level, or KEY INSIGHTS
                 if (next_line.startswith('⭐ ₹') or 
                     next_line.startswith('   ₹') or
                     'KEY INSIGHTS' in next_line):
@@ -75,7 +82,7 @@ def extract_key_insights(output: str) -> str:
             return '\n'.join(result).strip()
         return None
     
-    # Find end of KEY INSIGHTS
+    # Find end of KEY INSIGHTS (next === separator)
     key_insights_end = len(lines)
     for i in range(key_insights_start + 1, len(lines)):
         if '='*50 in lines[i]:
