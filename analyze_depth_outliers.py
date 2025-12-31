@@ -99,102 +99,53 @@ def analyze_depth_outliers(security_id=49229):
 
 
 def analyze_side_outliers(levels_dict, side_name):
-    """Analyze outliers for one side (BID or ASK) using IQR method"""
+    """Analyze outliers for one side (BID or ASK) - Qty >= 20x average is outlier"""
     
-    # Aggregate statistics across all price levels
+    # Aggregate all quantities
     all_quantities = []
-    all_orders = []
-    all_ratios = []
     
     for price, snapshots in levels_dict.items():
         for snap in snapshots:
             all_quantities.append(snap['qty'])
-            all_orders.append(snap['orders'])
-            all_ratios.append(snap['ratio'])
     
     if not all_quantities:
         print(f"No data for {side_name} side")
         return
     
-    # Calculate IQR-based thresholds (more robust than std dev)
-    q1_qty = percentile(all_quantities, 25)
-    q3_qty = percentile(all_quantities, 75)
-    iqr_qty = q3_qty - q1_qty
-    
-    q1_orders = percentile(all_orders, 25)
-    q3_orders = percentile(all_orders, 75)
-    iqr_orders = q3_orders - q1_orders
-    
-    q1_ratio = percentile(all_ratios, 25)
-    q3_ratio = percentile(all_ratios, 75)
-    iqr_ratio = q3_ratio - q1_ratio
-    
-    # IQR outlier bounds (1.5x IQR is standard)
-    qty_lower = q1_qty - (1.5 * iqr_qty)
-    qty_upper = q3_qty + (1.5 * iqr_qty)
-    
-    orders_lower = q1_orders - (1.5 * iqr_orders)
-    orders_upper = q3_orders + (1.5 * iqr_orders)
-    
-    ratio_lower = q1_ratio - (1.5 * iqr_ratio)
-    ratio_upper = q3_ratio + (1.5 * iqr_ratio)
+    # Calculate average quantity
+    avg_qty = sum(all_quantities) / len(all_quantities)
+    outlier_threshold = avg_qty * 20
     
     print(f"\nStatistics ({len(all_quantities)} total snapshots):")
-    print(f"  Quantity:  Q1={percentile(all_quantities, 25):,.0f}  Q3={percentile(all_quantities, 75):,.0f}  IQR={iqr_qty:,.0f}")
-    print(f"  Orders:    Q1={percentile(all_orders, 25):.0f}  Q3={percentile(all_orders, 75):.0f}  IQR={iqr_orders:.0f}")
-    print(f"  Qty/Order: Q1={percentile(all_ratios, 25):,.1f}  Q3={percentile(all_ratios, 75):,.1f}  IQR={iqr_ratio:,.1f}")
+    print(f"  Average Qty:         {avg_qty:,.0f}")
+    print(f"  Outlier Threshold:   {outlier_threshold:,.0f} (20x avg)")
     
-    # Collect outliers only
+    # Collect only outliers (qty >= 20x average)
     outliers = []
     
     for price, snapshots in sorted(levels_dict.items(), reverse=True):
         for snap in snapshots:
-            is_outlier = False
-            reasons = []
-            
-            if snap['qty'] > qty_upper:
-                is_outlier = True
-                reasons.append(f"High Qty ({snap['qty']:,})")
-            elif snap['qty'] < qty_lower:
-                is_outlier = True
-                reasons.append(f"Low Qty ({snap['qty']:,})")
-            
-            if snap['orders'] > orders_upper:
-                is_outlier = True
-                reasons.append(f"High Orders ({snap['orders']})")
-            elif snap['orders'] < orders_lower:
-                is_outlier = True
-                reasons.append(f"Low Orders ({snap['orders']})")
-            
-            if snap['ratio'] > ratio_upper:
-                is_outlier = True
-                reasons.append(f"High Ratio ({snap['ratio']:,.1f})")
-            elif snap['ratio'] < ratio_lower:
-                is_outlier = True
-                reasons.append(f"Low Ratio ({snap['ratio']:,.1f})")
-            
-            if is_outlier:
+            if snap['qty'] >= outlier_threshold:
                 outliers.append({
                     'price': price,
                     'qty': snap['qty'],
                     'orders': snap['orders'],
                     'ratio': snap['ratio'],
                     'time': snap['time'],
-                    'reasons': reasons
+                    'multiplier': snap['qty'] / avg_qty
                 })
     
     # Display only outliers
     if outliers:
         print(f"\n🔴 OUTLIERS DETECTED ({len(outliers)} instances):\n")
-        print(f"{'Price':<12} {'Qty':<12} {'Orders':<10} {'Qty/Order':<12} {'Time':<20} {'Reason':<50}")
-        print("-" * 116)
+        print(f"{'Price':<12} {'Qty':<12} {'Orders':<10} {'Qty/Order':<12} {'Multiplier':<12} {'Time':<20}")
+        print("-" * 98)
         
-        for outlier in sorted(outliers, key=lambda x: x['price'], reverse=True):
-            reasons_str = " | ".join(outlier['reasons'])[:49]
+        for outlier in sorted(outliers, key=lambda x: x['qty'], reverse=True):
             print(f"{outlier['price']:<12.2f} {outlier['qty']:<12,} {outlier['orders']:<10} "
-                  f"{outlier['ratio']:<12,.1f} {str(outlier['time']):<20} {reasons_str:<50}")
+                  f"{outlier['ratio']:<12,.1f} {outlier['multiplier']:<12.1f}x {str(outlier['time']):<20}")
     else:
-        print(f"\n✓ No outliers detected on {side_name} side")
+        print(f"\n✓ No outliers detected on {side_name} side (Qty < 20x average)")
 
 
 if __name__ == "__main__":
