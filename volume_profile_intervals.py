@@ -35,7 +35,11 @@ def get_db_connection():
 
 
 def load_tick_data(instrument_token, start_date=None, end_date=None):
-    """Load tick data with volume delta and aggressor side"""
+    """Load tick data with volume delta and aggressor side
+    
+    NOTE: Tick timestamps are stored as IST with +00:00 marker (bug in ingestion)
+    They appear as 09:00:00+00:00 but actually mean 9:00 AM IST, not 9:00 AM UTC
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
     
