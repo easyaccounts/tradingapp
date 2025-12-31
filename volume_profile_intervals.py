@@ -110,44 +110,60 @@ def load_orderbook_depth(instrument_token, start_time, end_time, tick_size=5):
     conn = get_db_connection()
     cursor = conn.cursor()
     
+    # Get raw depth data and round prices in Python for proper grouping
     query = """
         SELECT 
             price,
             side,
-            AVG(quantity) as avg_quantity,
-            COUNT(*) as snapshot_count
+            quantity
         FROM depth_levels_200
         WHERE security_id = %s
           AND time >= %s
           AND time < %s
-        GROUP BY price, side
-        ORDER BY price DESC
     """
     
     cursor.execute(query, (instrument_token, start_time, end_time))
     rows = cursor.fetchall()
     
-    depth = defaultdict(lambda: {'bid_depth': 0, 'ask_depth': 0, 'snapshots': 0})
+    # Debug: Print first call info
+    if not hasattr(load_orderbook_depth, '_debug_printed'):
+        print(f"  [DEBUG] First depth query: security_id={instrument_token}, time={start_time} to {end_time}")
+        print(f"  [DEBUG] Raw rows returned: {len(rows)}")
+        if len(rows) > 0:
+            print(f"  [DEBUG] Sample prices: {[float(row[0]) for row in rows[:5]]}")
+        load_orderbook_depth._debug_printed = True
+    
+    # Group by rounded price
+    depth_aggregated = defaultdict(lambda: {'bid_qty': [], 'ask_qty': []})
     
     for row in rows:
         price = float(row[0])
         side = row[1]
-        avg_qty = float(row[2])
-        count = int(row[3])
+        quantity = float(row[2])
         
+        # Round to tick_size
         price_level = round(price / tick_size) * tick_size
         
         if side == 'BID':
-            depth[price_level]['bid_depth'] += avg_qty
-            depth[price_level]['snapshots'] = max(depth[price_level]['snapshots'], count)
+            depth_aggregated[price_level]['bid_qty'].append(quantity)
         elif side == 'ASK':
-            depth[price_level]['ask_depth'] += avg_qty
-            depth[price_level]['snapshots'] = max(depth[price_level]['snapshots'], count)
+            depth_aggregated[price_level]['ask_qty'].append(quantity)
+    
+    # Calculate averages
+    depth = {}
+    for price_level, data in depth_aggregated.items():
+        bid_depth = sum(data['bid_qty']) / len(data['bid_qty']) if data['bid_qty'] else 0
+        ask_depth = sum(data['ask_qty']) / len(data['ask_qty']) if data['ask_qty'] else 0
+        depth[price_level] = {
+            'bid_depth': bid_depth,
+            'ask_depth': ask_depth,
+            'snapshots': len(data['bid_qty']) + len(data['ask_qty'])
+        }
     
     cursor.close()
     conn.close()
     
-    return dict(depth)
+    return depth
 
 
 def load_key_levels(instrument_token, start_time, end_time, threshold=0.3):
