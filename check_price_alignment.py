@@ -15,8 +15,9 @@ conn = psycopg2.connect(
 
 cur = conn.cursor()
 
-start = '2025-12-31 09:00:00+00:00'
-end = '2025-12-31 09:05:00+00:00'
+# 9:30 AM to 9:35 AM IST = 4:00 AM to 4:05 AM UTC
+start = '2025-12-31 04:00:00+00:00'
+end = '2025-12-31 04:05:00+00:00'
 
 print("=" * 80)
 print("MARKET HOURS CHECK")
@@ -24,7 +25,7 @@ print("=" * 80)
 print("IST Market Hours: 9:15 AM - 3:30 PM")
 print("UTC Market Hours: 3:45 AM - 10:00 AM")
 print(f"\nQuery window: {start} to {end}")
-print(f"In IST: 2:30 PM to 2:35 PM (mid-market)")
+print(f"In IST: 9:30 AM to 9:35 AM (market open)")
 
 # Get actual market open times
 cur.execute("""
