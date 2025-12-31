@@ -272,13 +272,13 @@ def main():
     print(f"Range: ₹{range_price:.2f} points")
     
     # Pressure summary
-    bullish_periods = sum(1 for s in signals if s['pressure_60s'] > 0.4)
-    bearish_periods = sum(1 for s in signals if s['pressure_60s'] < -0.4)
+    bullish_periods = sum(1 for s in signals if s['pressure_60s'] > 0.2)
+    bearish_periods = sum(1 for s in signals if s['pressure_60s'] < -0.2)
     neutral_periods = len(signals) - bullish_periods - bearish_periods
     
     print(f"\nPressure Distribution:")
-    print(f"  Bullish (>0.4): {bullish_periods} snapshots ({100*bullish_periods/len(signals):.1f}%)")
-    print(f"  Bearish (<-0.4): {bearish_periods} snapshots ({100*bearish_periods/len(signals):.1f}%)")
+    print(f"  Bullish (>0.2): {bullish_periods} snapshots ({100*bullish_periods/len(signals):.1f}%)")
+    print(f"  Bearish (<-0.2): {bearish_periods} snapshots ({100*bearish_periods/len(signals):.1f}%)")
     print(f"  Neutral: {neutral_periods} snapshots ({100*neutral_periods/len(signals):.1f}%)")
     
     print("\n" + "=" * 100)
