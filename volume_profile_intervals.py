@@ -130,7 +130,9 @@ def load_orderbook_depth(instrument_token, start_time, end_time, tick_size=5):
         print(f"  [DEBUG] First depth query: security_id={instrument_token}, time={start_time} to {end_time}")
         print(f"  [DEBUG] Raw rows returned: {len(rows)}")
         if len(rows) > 0:
-            print(f"  [DEBUG] Sample prices: {[float(row[0]) for row in rows[:5]]}")
+            sample_prices = [float(row[0]) for row in rows[:10]]
+            print(f"  [DEBUG] Sample raw prices: {sample_prices}")
+            print(f"  [DEBUG] Min/Max depth prices: ₹{min(float(r[0]) for r in rows):.2f} - ₹{max(float(r[0]) for r in rows):.2f}")
         load_orderbook_depth._debug_printed = True
     
     # Group by rounded price
@@ -519,6 +521,12 @@ def main():
         profile = calculate_volume_profile(interval_ticks, tick_size=args.tick_size)
         orderbook_depth = load_orderbook_depth(depth_token, interval_start, interval_end, tick_size=args.tick_size)
         
+        # Debug for first interval
+        if len(interval_data) == 0:
+            depth_prices = sorted(orderbook_depth.keys())
+            print(f"  [DEBUG] Profile prices: {sorted(profile.keys())[:10]}")
+            print(f"  [DEBUG] Depth prices available ({len(depth_prices)} levels): {depth_prices[:10]} ... {depth_prices[-10:]}")
+        
         # Get top volume price level
         if profile:
             prices = sorted(profile.keys())
@@ -528,6 +536,11 @@ def main():
             poc_volume = total_volumes[poc_idx]
             net_delta = sum(profile[p]['delta'] for p in prices)
             total_volume = sum(total_volumes)
+            
+            # Debug POC lookup for first interval
+            if len(interval_data) == 0:
+                print(f"  [DEBUG] POC price: ₹{poc_price:.2f}")
+                print(f"  [DEBUG] POC in depth data: {poc_price in orderbook_depth}")
             
             # Get avg depth at POC
             poc_depth = 0
