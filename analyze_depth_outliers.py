@@ -99,54 +99,54 @@ def analyze_depth_outliers(security_id=49229):
 
 
 def analyze_side_outliers(levels_dict, side_name):
-    """Analyze outliers for one side (BID or ASK) - Qty >= 20x average is outlier"""
+    """Analyze outliers for one side (BID or ASK) - Orders >= 20x average is outlier"""
     
-    # Aggregate all quantities
-    all_quantities = []
+    # Aggregate all orders
+    all_orders = []
     
     for price, snapshots in levels_dict.items():
         for snap in snapshots:
-            all_quantities.append(snap['qty'])
+            all_orders.append(snap['orders'])
     
-    if not all_quantities:
+    if not all_orders:
         print(f"No data for {side_name} side")
         return
     
-    # Calculate average quantity
-    avg_qty = sum(all_quantities) / len(all_quantities)
-    outlier_threshold = avg_qty * 20
+    # Calculate average orders
+    avg_orders = sum(all_orders) / len(all_orders)
+    outlier_threshold = avg_orders * 20
     
-    print(f"\nStatistics ({len(all_quantities)} total snapshots):")
-    print(f"  Average Qty:         {avg_qty:,.0f}")
-    print(f"  Outlier Threshold:   {outlier_threshold:,.0f} (20x avg)")
+    print(f"\nStatistics ({len(all_orders)} total snapshots):")
+    print(f"  Average Orders:      {avg_orders:,.1f}")
+    print(f"  Outlier Threshold:   {outlier_threshold:,.1f} (20x avg)")
     
-    # Collect only outliers (qty >= 20x average)
+    # Collect only outliers (orders >= 20x average)
     outliers = []
     
     for price, snapshots in sorted(levels_dict.items(), reverse=True):
         for snap in snapshots:
-            if snap['qty'] >= outlier_threshold:
+            if snap['orders'] >= outlier_threshold:
                 outliers.append({
                     'price': price,
                     'qty': snap['qty'],
                     'orders': snap['orders'],
                     'ratio': snap['ratio'],
                     'time': snap['time'],
-                    'multiplier': snap['qty'] / avg_qty
+                    'multiplier': snap['orders'] / avg_orders
                 })
     
     # Display only top 10 outliers by multiplier
     if outliers:
         top_outliers = sorted(outliers, key=lambda x: x['multiplier'], reverse=True)[:10]
         print(f"\n🔴 TOP 10 OUTLIERS (by multiplier) - Total detected: {len(outliers)}\n")
-        print(f"{'Price':<12} {'Qty':<12} {'Orders':<10} {'Qty/Order':<12} {'Multiplier':<12} {'Time':<20}")
+        print(f"{'Price':<12} {'Orders':<12} {'Qty':<12} {'Qty/Order':<12} {'Multiplier':<12} {'Time':<20}")
         print("-" * 98)
         
         for outlier in top_outliers:
-            print(f"{outlier['price']:<12.2f} {outlier['qty']:<12,} {outlier['orders']:<10} "
+            print(f"{outlier['price']:<12.2f} {outlier['orders']:<12} {outlier['qty']:<12,} "
                   f"{outlier['ratio']:<12,.1f} {outlier['multiplier']:<12.1f}x {str(outlier['time']):<20}")
     else:
-        print(f"\n✓ No outliers detected on {side_name} side (Qty < 20x average)")
+        print(f"\n✓ No outliers detected on {side_name} side (Orders < 20x average)")
 
 
 if __name__ == "__main__":
