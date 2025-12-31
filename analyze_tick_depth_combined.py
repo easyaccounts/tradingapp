@@ -59,6 +59,7 @@ def analyze_tick_depth_combined():
         print(f"⚠️  No tick data found for instrument_token {tick_security_id}\n")
     
     # Step 2: Get tick data (volume traded per second)
+    # Convert IST time window to UTC for querying (ticks table stores in UTC)
     tick_query = """
         SELECT 
             DATE_TRUNC('second', time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') as second_ist,
@@ -68,9 +69,9 @@ def analyze_tick_depth_combined():
             COUNT(*) as tick_count
         FROM ticks
         WHERE instrument_token = %s
-            AND DATE(time) = %s
-            AND time::time >= %s::time
-            AND time::time < %s::time
+            AND DATE(time AT TIME ZONE 'Asia/Kolkata') = %s
+            AND (time AT TIME ZONE 'Asia/Kolkata')::time >= %s::time
+            AND (time AT TIME ZONE 'Asia/Kolkata')::time < %s::time
         GROUP BY DATE_TRUNC('second', time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
         ORDER BY second_ist
     """
