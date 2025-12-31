@@ -11,7 +11,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import analysis functions
-exec(open('scripts/bollinger_b_analysis.py').read().split('if __name__')[0])
+from scripts.bollinger_b_analysis import bollinger_percent_b
 
 
 def get_db_connection():

@@ -12,8 +12,12 @@ import numpy as np
 # Add parent directory to path for importing bollinger_b_analysis functions
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import analysis functions
-exec(open('scripts/bollinger_b_analysis.py').read().split('if __name__')[0])
+# Import analysis functions from bollinger_b_analysis
+from scripts.bollinger_b_analysis import (
+    bollinger_percent_b,
+    identify_signals,
+    analyze_signal_performance
+)
 
 # Nifty 50 symbols
 NIFTY50_SYMBOLS = [

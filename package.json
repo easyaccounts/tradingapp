@@ -1,0 +1,15 @@
+{
+  "name": "tradingapp",
+  "version": "1.0.0",
+  "description": "Production-grade trading data platform for ingesting F&O market data from KiteConnect to TimescaleDB with real-time processing and analytics.",
+  "main": "dhan_depth_websocket.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
