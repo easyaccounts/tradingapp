@@ -41,51 +41,70 @@ def extract_key_insights(output: str) -> str:
     
     print(f"DEBUG: KEY INSIGHTS at lines {key_insights_start} to {key_insights_end}")
     
-    # Step 2: Find separator before KEY INSIGHTS (working backwards)
-    separator_idx = None
+    # Step 2: Find the legend line "⭐ = Strongest level" before KEY INSIGHTS
+    legend_idx = None
     for i in range(key_insights_start - 1, -1, -1):
+        if '⭐ = Strongest level' in lines[i] or '⭐ =' in lines[i]:
+            legend_idx = i
+            break
+    
+    if legend_idx is None:
+        print(f"DEBUG: Legend line not found, returning just KEY INSIGHTS")
+        return '\n'.join(lines[key_insights_start:key_insights_end]).strip()
+    
+    print(f"DEBUG: Legend at line {legend_idx}: '{lines[legend_idx][:80]}...'")
+    
+    # Step 3: Find separator AFTER legend (should be next line or nearby)
+    separator_idx = None
+    for i in range(legend_idx + 1, min(legend_idx + 5, key_insights_start)):
         if lines[i].startswith('----') and len(lines[i]) > 50:
             separator_idx = i
             break
     
     if separator_idx is None:
-        print(f"DEBUG: No separator found, returning just KEY INSIGHTS")
+        print(f"DEBUG: No separator after legend, returning just KEY INSIGHTS")
         return '\n'.join(lines[key_insights_start:key_insights_end]).strip()
     
-    print(f"DEBUG: Separator at line {separator_idx}, content: '{lines[separator_idx][:50]}...'")
+    print(f"DEBUG: Separator at line {separator_idx}")
     print(f"DEBUG: Next line after separator: '{lines[separator_idx + 1][:80]}...'")
     
-    # Step 3: Collect ONLY starred levels (⭐ ₹)
-    # Start after separator, skip legend/separator lines, stop at first non-starred level
+    # Step 4: Collect ONLY starred levels (⭐ ₹)
+    # Start after separator, stop at first non-starred level
     strongest_levels = []
     i = separator_idx + 1
+    starred_count = 0
     
     while i < key_insights_start:
         line = lines[i]
+        line_stripped = line.lstrip()
         
-        # STOP at first non-starred level
-        if line.startswith('   ₹'):
+        # STOP at first non-starred level (3 spaces + ₹)
+        if line_stripped.startswith('₹') and not line_stripped.startswith('⭐'):
+            print(f"DEBUG: Stopping at first non-starred level at line {i}: '{line[:60]}...'")
             break
         
-        # Collect starred level
-        if line.startswith('⭐ ₹'):
+        # Collect starred level (⭐ followed by ₹ anywhere in first 5 chars)
+        if '⭐' in line[:5] and '₹' in line[:10]:
+            starred_count += 1
+            print(f"DEBUG: Found starred level #{starred_count} at line {i}: '{line[:60]}...'")
             level_block = [line]
             i += 1
             # Collect detail lines (indented, not starting new level)
             while i < key_insights_start:
                 next_line = lines[i]
-                # Stop at any new level
-                if next_line.startswith('⭐ ₹') or next_line.startswith('   ₹'):
+                next_stripped = next_line.lstrip()
+                # Stop at any new level (starred or non-starred)
+                if next_stripped.startswith('₹') or next_stripped.startswith('⭐'):
                     break
                 level_block.append(next_line)
                 i += 1
             strongest_levels.extend(level_block)
             strongest_levels.append("")  # blank line between levels
         else:
-            # Skip legend, separator, empty lines
+            # Skip empty lines, etc.
             i += 1
     
-    # Step 4: Build final result
+    # Step 5: Build final result
     result = []
     if strongest_levels:
         result.append("🌟 STRONGEST PERSISTENT LEVELS")

@@ -565,19 +565,27 @@ def analyze_changes(current_levels, previous_state, current_price):
         print()
 
 def generate_key_insights(conn, current_price, persistent_levels, latest_time=None):
-    """Generate actionable insights"""
-    print(f"\n{'='*100}")
-    print(f"KEY INSIGHTS")
-    print(f"{'='*100}\n")
+    """Generate actionable insights - returns (insights_text, insights_data)"""
+    output_lines = []
+    insights_data = {}
+    
+    output_lines.append(f"\n{'='*100}")
+    output_lines.append(f"KEY INSIGHTS")
+    output_lines.append(f"{'='*100}\n")
     
     if not current_price:
-        print("Unable to generate insights - current price not available")
-        return
+        output_lines.append("Unable to generate insights - current price not available")
+        print('\n'.join(output_lines))
+        return '\n'.join(output_lines), insights_data
     
     # Show timestamp
     if latest_time:
         ist_time = latest_time + timedelta(hours=5, minutes=30)
-        print(f"🎯 PRICE ACTION: ₹{current_price:.2f} (as of {ist_time.strftime('%H:%M:%S')} IST)")
+        output_lines.append(f"🎯 PRICE ACTION: ₹{current_price:.2f} (as of {ist_time.strftime('%H:%M:%S')} IST)")
+        insights_data['timestamp_ist'] = ist_time.strftime('%H:%M:%S IST')
+    
+    insights_data['current_price'] = current_price
+    
     supports = [l for l in persistent_levels if l['side'] == 'bid' and l['price'] < current_price]
     resistances = [l for l in persistent_levels if l['side'] == 'ask' and l['price'] > current_price]
     
@@ -612,17 +620,23 @@ def generate_key_insights(conn, current_price, persistent_levels, latest_time=No
             bias_icon = "━"
         
         if not latest_time:
-            print(f"🎯 PRICE ACTION: ₹{current_price:.2f}")
+            output_lines.append(f"🎯 PRICE ACTION: ₹{current_price:.2f}")
+        
+        insights_data['bias'] = bias
+        insights_data['bias_icon'] = bias_icon
+        insights_data['imbalance_pct'] = imb_pct
+        insights_data['nearest_support'] = nearest_support
+        insights_data['nearest_resistance'] = nearest_resistance
         
         if nearest_support:
             distance = current_price - nearest_support['price']
-            print(f"   Trading {distance:.2f} points ABOVE ₹{nearest_support['price']:.2f} support ({nearest_support['max_orders']} orders peak)")
+            output_lines.append(f"   Trading {distance:.2f} points ABOVE ₹{nearest_support['price']:.2f} support ({nearest_support['max_orders']} orders peak)")
         
         if nearest_resistance:
             distance = nearest_resistance['price'] - current_price
-            print(f"   Next resistance at ₹{nearest_resistance['price']:.2f} ({distance:.2f} points away, {nearest_resistance['max_orders']} orders)")
+            output_lines.append(f"   Next resistance at ₹{nearest_resistance['price']:.2f} ({distance:.2f} points away, {nearest_resistance['max_orders']} orders)")
         
-        print(f"\n📊 MARKET BIAS: {bias_icon} {bias} (Order imbalance: {imb_pct:+.1f}%)")
+        output_lines.append(f"\n📊 MARKET BIAS: {bias_icon} {bias} (Order imbalance: {imb_pct:+.1f}%)")
         
         # Check for weakening resistance
         if nearest_resistance:
@@ -633,7 +647,11 @@ def generate_key_insights(conn, current_price, persistent_levels, latest_time=No
                 change_pct = ((late_avg - early_avg) / early_avg * 100) if early_avg > 0 else 0
                 
                 if change_pct < -40:
-                    print(f"\n⚠️  WATCH: ₹{nearest_resistance['price']:.2f} resistance showing ABSORPTION ({change_pct:.0f}% decline) - Breakout likely")
+                    output_lines.append(f"\n⚠️  WATCH: ₹{nearest_resistance['price']:.2f} resistance showing ABSORPTION ({change_pct:.0f}% decline) - Breakout likely")
+                    insights_data['absorption_warning'] = {
+                        'price': nearest_resistance['price'],
+                        'change_pct': change_pct
+                    }
         
         # Trade setup
         if nearest_support and nearest_resistance and bias == "BULLISH":
@@ -647,11 +665,21 @@ def generate_key_insights(conn, current_price, persistent_levels, latest_time=No
             if reward > 0 and risk > 0:
                 rr_ratio = reward / risk
                 
-                print(f"\n✅ LONG SETUP:")
-                print(f"   Entry: Above ₹{entry:.2f} (above {nearest_support['price']:.2f} support)")
-                print(f"   Stop: ₹{stop:.2f} (Risk: {risk:.2f} points)")
-                print(f"   Target: ₹{target:.2f} (Reward: {reward:.2f} points)")
-                print(f"   Risk/Reward: 1:{rr_ratio:.1f}")
+                output_lines.append(f"\n✅ LONG SETUP:")
+                output_lines.append(f"   Entry: Above ₹{entry:.2f} (above {nearest_support['price']:.2f} support)")
+                output_lines.append(f"   Stop: ₹{stop:.2f} (Risk: {risk:.2f} points)")
+                output_lines.append(f"   Target: ₹{target:.2f} (Reward: {reward:.2f} points)")
+                output_lines.append(f"   Risk/Reward: 1:{rr_ratio:.1f}")
+                
+                insights_data['trade_setup'] = {
+                    'direction': 'LONG',
+                    'entry': entry,
+                    'stop': stop,
+                    'target': target,
+                    'risk': risk,
+                    'reward': reward,
+                    'rr_ratio': rr_ratio
+                }
         
         elif nearest_support and nearest_resistance and bias == "BEARISH":
             entry = nearest_resistance['price'] - 3  # Enter below resistance
@@ -664,11 +692,87 @@ def generate_key_insights(conn, current_price, persistent_levels, latest_time=No
             if reward > 0 and risk > 0:
                 rr_ratio = reward / risk
                 
-                print(f"\n✅ SHORT SETUP:")
-                print(f"   Entry: Below ₹{entry:.2f} (below {nearest_resistance['price']:.2f} resistance)")
-                print(f"   Stop: ₹{stop:.2f} (Risk: {risk:.2f} points)")
-                print(f"   Target: ₹{target:.2f} (Reward: {reward:.2f} points)")
-                print(f"   Risk/Reward: 1:{rr_ratio:.1f}")
+                output_lines.append(f"\n✅ SHORT SETUP:")
+                output_lines.append(f"   Entry: Below ₹{entry:.2f} (below {nearest_resistance['price']:.2f} resistance)")
+                output_lines.append(f"   Stop: ₹{stop:.2f} (Risk: {risk:.2f} points)")
+                output_lines.append(f"   Target: ₹{target:.2f} (Reward: {reward:.2f} points)")
+                output_lines.append(f"   Risk/Reward: 1:{rr_ratio:.1f}")
+                
+                insights_data['trade_setup'] = {
+                    'direction': 'SHORT',
+                    'entry': entry,
+                    'stop': stop,
+                    'target': target,
+                    'risk': risk,
+                    'reward': reward,
+                    'rr_ratio': rr_ratio
+                }
+    
+    # Print output (for CLI usage)
+    output_text = '\n'.join(output_lines)
+    print(output_text)
+    
+    return output_text, insights_data
+
+def get_analysis_data():
+    """
+    Get structured analysis data for programmatic use (e.g., Slack bot)
+    Returns dict with:
+        - strongest_levels: List of strongest bid/ask levels with full details
+        - key_insights: Dict with price action, bias, trade setup
+        - key_insights_text: Formatted text of KEY INSIGHTS section
+    """
+    conn = get_db_connection()
+    
+    try:
+        min_time, max_time = get_time_range(conn)
+        
+        if not min_time or not max_time:
+            return None
+        
+        # Get current price
+        current_price, best_bid, best_ask = get_current_price(conn)
+        
+        # Get timestamp of current price
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(time) FROM depth_levels_200 WHERE time::date = CURRENT_DATE")
+        latest_time = cur.fetchone()[0]
+        cur.close()
+        
+        # Track level evolution
+        level_history, persistent_levels = track_level_evolution(conn, sample_interval_seconds=10, current_price=current_price)
+        
+        if not persistent_levels:
+            return None
+        
+        # Get strongest levels (starred in output)
+        bid_levels = [l for l in persistent_levels if l['side'] == 'bid']
+        ask_levels = [l for l in persistent_levels if l['side'] == 'ask']
+        strongest_support = bid_levels[0] if bid_levels else None
+        strongest_resistance = ask_levels[0] if ask_levels else None
+        
+        strongest_levels = []
+        if strongest_support:
+            strongest_levels.append(strongest_support)
+        if strongest_resistance:
+            strongest_levels.append(strongest_resistance)
+        
+        # Generate key insights
+        insights_text, insights_data = generate_key_insights(conn, current_price, persistent_levels, latest_time)
+        
+        return {
+            'current_price': current_price,
+            'best_bid': best_bid,
+            'best_ask': best_ask,
+            'latest_time': latest_time,
+            'strongest_levels': strongest_levels,
+            'persistent_levels': persistent_levels[:15],  # Top 15
+            'key_insights': insights_data,
+            'key_insights_text': insights_text
+        }
+        
+    finally:
+        conn.close()
 
 def main():
     conn = get_db_connection()
@@ -728,7 +832,7 @@ def main():
         
         # 5. Generate key insights
         if persistent_levels:
-            generate_key_insights(conn, current_price, persistent_levels, latest_time)
+            insights_text, insights_data = generate_key_insights(conn, current_price, persistent_levels, latest_time)
         
         # Save current state for next run
         if persistent_levels and current_price:
