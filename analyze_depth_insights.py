@@ -255,10 +255,10 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
     persistent_levels.sort(key=lambda x: x['composite_score'], reverse=True)
     
     print(f"PERSISTENT LEVELS (appeared in ≥{int(persistent_threshold)} snapshots with ≥5 orders peak):")
-    print(f"⭐ = Strongest level - used for trade setup in KEY INSIGHTS section below")
+    print(f"⭐ = Strongest of each side (composite score: 40% orders, 40% quantity, 20% persistence)")
     print(f"{'-'*100}")
     
-    # Track which is the strongest of each side
+    # Get strongest of each side based on composite score
     bid_levels = [l for l in persistent_levels if l['side'] == 'bid']
     ask_levels = [l for l in persistent_levels if l['side'] == 'ask']
     strongest_support = bid_levels[0] if bid_levels else None
@@ -267,7 +267,7 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
     for level in persistent_levels[:15]:
         side_label = 'SUPPORT' if level['side'] == 'bid' else 'RESISTANCE'
         
-        # Mark strongest levels
+        # Mark strongest of each side
         is_strongest = (level == strongest_support or level == strongest_resistance)
         marker = "⭐" if is_strongest else "  "
         
@@ -293,7 +293,7 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
         
         print(f"{marker} ₹{level['price']:>10.2f} {side_label:>10} | Peak: {level['max_orders']:>2} orders | "
               f"Avg: {level['avg_orders']:>4.1f} | Seen: {level['appearances']:>3}x | "
-              f"{first_seen} → {last_seen}")
+              f"{first_seen} → {last_seen} | Score: {level['composite_score']:>6.0f}")
         print(f"  Qty: Peak {level['max_quantity']:,} | Avg {level['avg_quantity']:,.0f}")
         print(f"  {signal}")
         
@@ -753,7 +753,7 @@ def get_analysis_data():
         if not persistent_levels:
             return None
         
-        # Get strongest levels (starred in output)
+        # Get strongest of each side (by composite score)
         bid_levels = [l for l in persistent_levels if l['side'] == 'bid']
         ask_levels = [l for l in persistent_levels if l['side'] == 'ask']
         strongest_support = bid_levels[0] if bid_levels else None
