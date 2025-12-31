@@ -25,15 +25,12 @@ WINDOW_END = '10:33:00'
 
 def classify_signal(volume, price_change, delta_bid, delta_ask, bid_qty, ask_qty):
     """
-    Classify using Imbalance Ratio = (|ΔBid| - |ΔAsk|) / (|ΔBid| + |ΔAsk|)
+    Classify using ONLY Imbalance Ratio = (|ΔBid| - |ΔAsk|) / (|ΔBid| + |ΔAsk|)
+    
+    Ignore price movement entirely. Just look at which side is moving more.
     
     Positive ratio: Bid side moving stronger (accumulation)
     Negative ratio: Ask side moving stronger (distribution)
-    
-    Ratio > +0.8:  Bid dominates 4.3x (extreme accumulation)
-    Ratio < -0.8:  Ask dominates 4.3x (extreme distribution)
-    Ratio > +0.6:  Bid dominates 2.5x (strong accumulation)
-    Ratio < -0.6:  Ask dominates 2.5x (strong distribution)
     """
     
     if volume < 1:
@@ -49,62 +46,55 @@ def classify_signal(volume, price_change, delta_bid, delta_ask, bid_qty, ask_qty
     
     imbalance_ratio = (abs_bid_delta - abs_ask_delta) / total_delta
     
-    # Thresholds
+    # Thresholds based on volume and imbalance
     strong_volume = volume > 50
     extreme_ratio = abs(imbalance_ratio) > 0.8  # One side 4.3x stronger
     strong_ratio = abs(imbalance_ratio) > 0.6   # One side 2.5x stronger
     medium_ratio = abs(imbalance_ratio) > 0.4   # One side 1.7x stronger
+    light_ratio = abs(imbalance_ratio) > 0.2    # One side 1.25x stronger
     
-    big_price_up = price_change > 0.5
-    big_price_down = price_change < -0.5
-    price_up = price_change > 0
-    price_down = price_change < 0
+    # EXTREME SIGNALS (One side dominates 4.3x+)
+    if extreme_ratio and strong_volume:
+        if imbalance_ratio > 0:
+            return "🟢 BULLISH ABSORPTION"  # Bid 4.3x+ stronger
+        else:
+            return "🔴 BEARISH ABSORPTION"  # Ask 4.3x+ stronger
     
-    # EXTREME SIGNALS (One side collapses > 80% while other barely moves)
-    if extreme_ratio > 0.8 and strong_volume and big_price_up:
-        # ASK side collapsing (imbalance > 0.8 = BID stronger = ask weakening), price up
-        return "🟢 BULLISH ABSORPTION"
-    
-    if extreme_ratio > 0.8 and strong_volume and big_price_down:
-        # ASK extremely weak but price still down = weak signal
-        return "🔴 Bearish Pressure"
-    
-    if imbalance_ratio < -0.8 and strong_volume and big_price_down:
-        # BID side collapsing (imbalance < -0.8 = ASK stronger = bid weakening), price down
-        return "🔴 BEARISH ABSORPTION"
-    
-    if imbalance_ratio < -0.8 and strong_volume and big_price_up:
-        # BID extremely weak but price still up = weak signal
-        return "🟢 Bullish Pressure"
-    
-    # STRONG DIRECTIONAL (One side 2.5x stronger than other)
-    if imbalance_ratio > 0.6 and strong_volume:
-        # BID side dominating (accumulation)
-        if price_up or delta_bid > 3000:
+    if extreme_ratio and volume > 10:
+        if imbalance_ratio > 0:
             return "🟡 Accumulation (Bid)"
         else:
-            return "🟡 Bid Pressure"
-    
-    if imbalance_ratio < -0.6 and strong_volume:
-        # ASK side dominating (distribution)
-        if price_down or delta_ask > 3000:
             return "🟠 Distribution (Ask)"
+    
+    # STRONG DIRECTIONAL (One side 2.5x+ stronger)
+    if strong_ratio and strong_volume:
+        if imbalance_ratio > 0:
+            return "🟡 Accumulation (Bid)"
+        else:
+            return "🟠 Distribution (Ask)"
+    
+    if strong_ratio and volume > 10:
+        if imbalance_ratio > 0:
+            return "🟡 Bid Pressure"
         else:
             return "🟠 Ask Pressure"
     
-    # MEDIUM DIRECTIONAL (One side 1.7x stronger)
-    if imbalance_ratio > 0.4 and strong_volume and big_price_up:
-        return "🟢 Bullish Pressure"
+    # MEDIUM DIRECTIONAL (One side 1.7x+ stronger)
+    if medium_ratio and strong_volume:
+        if imbalance_ratio > 0:
+            return "🟡 Bid Pressure"
+        else:
+            return "🟠 Ask Pressure"
     
-    if imbalance_ratio < -0.4 and strong_volume and big_price_down:
-        return "🔴 Bearish Pressure"
+    if medium_ratio and volume > 20:
+        if imbalance_ratio > 0:
+            return "🟢 Bullish (Weak)"
+        else:
+            return "🔴 Bearish (Weak)"
     
-    # WEAK SIGNALS
-    if imbalance_ratio > 0.3 and volume > 10 and price_up:
-        return "🟢 Bullish (Weak)"
-    
-    if imbalance_ratio < -0.3 and volume > 10 and price_down:
-        return "🔴 Bearish (Weak)"
+    # LIGHT DIRECTIONAL (One side 1.25x+ stronger)
+    if light_ratio and volume > 20:
+        return "⚪ Volume (Slightly Directional)"
     
     # BALANCED VOLUME
     if volume > 10:
