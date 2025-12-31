@@ -43,20 +43,35 @@ def analyze_tick_depth_combined():
     print(f"Date: {date.today()}")
     print(f"{'='*120}\n")
     
-    # Step 1: Get tick data (volume traded per second)
+    # Step 1: Check if tick data exists for this instrument
+    check_query = """
+        SELECT COUNT(*), MIN(time), MAX(time)
+        FROM ticks
+        WHERE instrument_token = %s
+            AND DATE(time) = %s
+    """
+    cursor.execute(check_query, (tick_security_id, date.today()))
+    count, min_time, max_time = cursor.fetchone()
+    print(f"Total ticks for instrument {tick_security_id} today: {count}")
+    if count > 0:
+        print(f"Time range: {min_time} to {max_time}\n")
+    else:
+        print(f"⚠️  No tick data found for instrument_token {tick_security_id}\n")
+    
+    # Step 2: Get tick data (volume traded per second)
     tick_query = """
         SELECT 
-            DATE_TRUNC('second', time AT TIME ZONE 'Asia/Kolkata') as second_ist,
+            DATE_TRUNC('second', time) as second_ist,
             MIN(last_price) as first_price,
             MAX(last_price) as last_price,
-            SUM(volume_delta) as total_volume,
+            SUM(COALESCE(volume_delta, 0)) as total_volume,
             COUNT(*) as tick_count
         FROM ticks
         WHERE instrument_token = %s
-            AND DATE(time AT TIME ZONE 'Asia/Kolkata') = %s
-            AND (time AT TIME ZONE 'Asia/Kolkata')::time >= %s::time
-            AND (time AT TIME ZONE 'Asia/Kolkata')::time < %s::time
-        GROUP BY DATE_TRUNC('second', time AT TIME ZONE 'Asia/Kolkata')
+            AND DATE(time) = %s
+            AND time::time >= %s::time
+            AND time::time < %s::time
+        GROUP BY DATE_TRUNC('second', time)
         ORDER BY second_ist
     """
     
@@ -73,7 +88,7 @@ def analyze_tick_depth_combined():
             'price_change': float(last_price - first_price) if (last_price and first_price) else 0
         }
     
-    print(f"Loaded {len(tick_data)} seconds of tick data\n")
+    print(f"Loaded {len(tick_data)} seconds of tick data in window {start_time_ist}-{end_time_ist}\n")
     
     # Step 2: Get depth snapshots per second
     depth_query = """
