@@ -36,8 +36,7 @@ def extract_key_insights(output: str) -> str:
     if key_insights_start is None:
         return None
     
-    # Find last occurrence of separator before KEY INSIGHTS
-    # This separator comes right before the actual strongest levels list
+    # Find last separator before KEY INSIGHTS
     separator_idx = None
     for i in range(key_insights_start - 1, -1, -1):
         if lines[i].startswith('----') and len(lines[i]) > 50:
@@ -48,33 +47,35 @@ def extract_key_insights(output: str) -> str:
         # Fallback: just return KEY INSIGHTS
         return '\n'.join(lines[key_insights_start:key_insights_end]).strip()
     
-    # Extract ONLY starred levels AFTER separator and BEFORE first non-starred level
+    # Extract ONLY starred levels - stop at FIRST non-starred level
     strongest_levels = []
+    found_starred = False
     i = separator_idx + 1
     
     while i < key_insights_start:
         line = lines[i]
         
-        # Stop at first non-starred level (starts with spaces + ₹)
+        # If we hit a non-starred level, STOP completely
         if line.startswith('   ₹'):
             break
         
-        # Found a strongest level (⭐ ₹)
+        # Process starred levels
         if line.startswith('⭐ ₹'):
+            found_starred = True
             level_lines = [line]
             i += 1
-            # Capture detail lines (lines that don't start a new level)
+            # Capture detail lines
             while i < key_insights_start:
                 next_line = lines[i]
-                # Stop at: any line starting with ⭐ or ₹ or blank line followed by ⭐/₹
-                if (next_line.startswith('⭐') or 
-                    next_line.startswith('   ₹')):
+                # Stop at next level (starred or non-starred)
+                if next_line.startswith('⭐ ₹') or next_line.startswith('   ₹'):
                     break
                 level_lines.append(next_line)
                 i += 1
             strongest_levels.extend(level_lines)
             strongest_levels.append("")  # Add spacing
         else:
+            # Skip any other lines (like legend, empty lines)
             i += 1
     
     # Build result
@@ -83,7 +84,6 @@ def extract_key_insights(output: str) -> str:
         result.append("🌟 STRONGEST PERSISTENT LEVELS")
         result.append("=" * 100)
         result.extend(strongest_levels)
-        result.append("")
     
     result.extend(lines[key_insights_start:key_insights_end])
     
