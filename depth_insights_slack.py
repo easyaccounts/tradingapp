@@ -32,14 +32,15 @@ def extract_key_insights(output: str) -> str:
             i += 1
             while i < len(lines):
                 next_line = lines[i]
-                # Stop at next level (⭐ or plain price line) or KEY INSIGHTS
+                # Stop at next level (any line starting with ⭐ or ₹ at column 0) or KEY INSIGHTS
                 if (next_line.strip().startswith('⭐') or 
                     next_line.strip().startswith('KEY INSIGHTS') or
-                    (next_line.strip().startswith('₹') and 'SUPPORT' in next_line or 'RESISTANCE' in next_line)):
+                    (next_line.startswith('   ₹') or next_line.startswith('⭐'))):
                     break
                 level_lines.append(next_line)
                 i += 1
             strongest_levels.extend(level_lines)
+            strongest_levels.append("")  # Add spacing between levels
         else:
             i += 1
     
@@ -66,7 +67,6 @@ def extract_key_insights(output: str) -> str:
         result.append("🌟 STRONGEST PERSISTENT LEVELS")
         result.append("=" * 100)
         result.extend(strongest_levels)
-        result.append("")
     
     result.extend(lines[key_insights_start:key_insights_end])
     
