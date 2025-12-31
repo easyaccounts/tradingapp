@@ -45,8 +45,8 @@ def load_todays_signals():
         signals.append({
             'time': row[0],
             'price': float(row[1]),
-            'key_levels': json.loads(row[2]) if row[2] else [],
-            'absorptions': json.loads(row[3]) if row[3] else [],
+            'key_levels': row[2] if row[2] else [],
+            'absorptions': row[3] if row[3] else [],
             'pressure_60s': float(row[4]) if row[4] else 0,
             'market_state': row[5]
         })
