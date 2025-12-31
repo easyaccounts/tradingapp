@@ -76,7 +76,10 @@ cur.execute("""
 """, (start, end))
 
 row = cur.fetchone()
-print(f"\nSummary: {row[2]} ticks, Price range: ₹{row[0]:.2f} - ₹{row[1]:.2f}")
+if row[2] == 0 or row[0] is None:
+    print(f"\n❌ NO TICKS FOUND in this time window!")
+else:
+    print(f"\nSummary: {row[2]} ticks, Price range: ₹{row[0]:.2f} - ₹{row[1]:.2f}")
 
 print("\n" + "=" * 80)
 print("DEPTH_LEVELS_200 TABLE (Dhan feed - security_id 49229)")
@@ -107,9 +110,15 @@ cur.execute("""
 """, (start, end))
 
 row = cur.fetchone()
-print(f"\nSummary: {row[2]} depth levels across {row[3]} snapshots")
-print(f"Price range: ₹{row[0]:.2f} - ₹{row[1]:.2f}")
+if row[2] == 0 or row[0] is None:
+    print(f"\n❌ NO DEPTH DATA FOUND in this time window!")
+else:
+    print(f"\nSummary: {row[2]} depth levels across {row[3]} snapshots")
+    print(f"Price range: ₹{row[0]:.2f} - ₹{row[1]:.2f}")
 
+print("\n⚠️  CRITICAL ISSUE: Tick data starts at 09:00 UTC (2:30 PM IST)")
+print("    This is 5 hours AFTER market open (9:15 AM IST / 3:45 AM UTC)")
+print("\n💡 SOLUTION: Fix Kite ingestion to start at 9:15 AM IST or earlier")
 print("\n" + "=" * 80)
 print("COMPARISON")
 print("=" * 80)
