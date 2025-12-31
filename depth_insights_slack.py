@@ -17,7 +17,7 @@ SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
 SCRIPT_PATH = '/opt/tradingapp/analyze_depth_insights.py'
 
 def extract_key_insights(output: str) -> str:
-    """Extract only the KEY INSIGHTS section from script output"""
+    """Extract and filter KEY INSIGHTS section - only strong persistent levels"""
     lines = output.split('\n')
     
     # Find start of KEY INSIGHTS section
@@ -30,16 +30,36 @@ def extract_key_insights(output: str) -> str:
     if start_idx is None:
         return None
     
-    # Find end of section (next ===== separator or "Analysis complete")
+    # Find end of section
     end_idx = len(lines)
     for i in range(start_idx + 1, len(lines)):
         if ('='*50 in lines[i] and 'Analysis complete' in lines[i+1] if i+1 < len(lines) else False):
             end_idx = i
             break
     
-    # Extract section
-    insights = '\n'.join(lines[start_idx:end_idx])
-    return insights.strip()
+    # Extract and filter lines
+    filtered_lines = []
+    skip_next = False
+    
+    for i in range(start_idx, end_idx):
+        line = lines[i]
+        
+        # Skip the "Trading X points ABOVE/BELOW" line
+        if 'Trading' in line and ('ABOVE' in line or 'BELOW' in line) and 'support' in line.lower():
+            skip_next = True
+            continue
+        
+        # Keep header, price action first line, market bias, and watch lines
+        if (line.strip().startswith('KEY INSIGHTS') or 
+            line.strip().startswith('===') or
+            line.strip().startswith('🎯 PRICE ACTION:') or
+            line.strip().startswith('Next ') or
+            line.strip().startswith('📊 MARKET BIAS:') or
+            line.strip().startswith('⚠️') or
+            line.strip() == ''):
+            filtered_lines.append(line)
+    
+    return '\n'.join(filtered_lines).strip()
 
 def send_to_slack(message: str) -> bool:
     """Send insights to Slack"""
