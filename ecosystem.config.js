@@ -298,7 +298,7 @@ module.exports = {
       cwd: '/opt/tradingapp',
       instances: 1,
       autorestart: false,
-      cron_restart: '30 11 * * 1-5',  // 4:00 PM IST = 11:30 CET (winter), Mon-Fri
+      cron_restart: '30 10 * * 1-5',  // 4:00 PM IST = 10:30 UTC, Mon-Fri
       watch: false,
       env: {
         PATH: '/usr/local/bin:/usr/bin:/bin'
