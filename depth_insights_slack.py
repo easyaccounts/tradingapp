@@ -17,25 +17,27 @@ SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
 SCRIPT_PATH = '/opt/tradingapp/analyze_depth_insights.py'
 
 def extract_key_insights(output: str) -> str:
-    """Extract strongest levels (⭐) + full KEY INSIGHTS section"""
+    """Extract strongest levels (⭐ ₹) + full KEY INSIGHTS section"""
     lines = output.split('\n')
     
-    # Extract strongest levels (marked with ⭐)
+    # Extract strongest levels (lines starting with ⭐ ₹)
     strongest_levels = []
     i = 0
     while i < len(lines):
         line = lines[i]
-        # Found a strongest level
-        if line.strip().startswith('⭐'):
-            # Capture this level and all its details until next level or KEY INSIGHTS
+        # Found a strongest level (must have both ⭐ and ₹ on same line)
+        if line.startswith('⭐ ₹'):
+            # Capture this level and all its details until next level
             level_lines = [line]
             i += 1
             while i < len(lines):
                 next_line = lines[i]
-                # Stop at next level (any line starting with ⭐ or ₹ at column 0) or KEY INSIGHTS
-                if (next_line.strip().startswith('⭐') or 
-                    next_line.strip().startswith('KEY INSIGHTS') or
-                    (next_line.startswith('   ₹') or next_line.startswith('⭐'))):
+                # Stop at: next starred level, non-starred level (starts with spaces+₹), separator, or KEY INSIGHTS
+                if (next_line.startswith('⭐ ₹') or 
+                    next_line.startswith('   ₹') or
+                    next_line.startswith('⭐ =') or
+                    next_line.startswith('---') or
+                    'KEY INSIGHTS' in next_line):
                     break
                 level_lines.append(next_line)
                 i += 1
@@ -67,6 +69,7 @@ def extract_key_insights(output: str) -> str:
         result.append("🌟 STRONGEST PERSISTENT LEVELS")
         result.append("=" * 100)
         result.extend(strongest_levels)
+        result.append("")
     
     result.extend(lines[key_insights_start:key_insights_end])
     
