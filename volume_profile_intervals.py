@@ -1,6 +1,6 @@
 """
-Volume Profile Analysis by 10-Minute Intervals
-Shows how volume and delta evolved throughout the trading session
+Volume Profile Analysis by 15-Minute Cumulative Intervals
+Shows cumulative volume and delta from market open through each interval
 """
 import os
 import psycopg2
@@ -172,38 +172,31 @@ def print_interval_stats(interval_name, ticks, profile):
     print(f"\nCharacter: {character}")
 
 
-def split_by_intervals(ticks, interval_minutes=10):
-    """Split ticks into time intervals"""
+def split_by_intervals(ticks, interval_minutes=15):
+    """Split ticks into cumulative time intervals from market start"""
     if not ticks:
         return []
     
     intervals = []
-    current_interval = []
     
     # Start from first tick's time, rounded down to interval
     first_time = ticks[0]['time']
-    interval_start = first_time.replace(minute=(first_time.minute // interval_minutes) * interval_minutes, second=0, microsecond=0)
+    market_open = first_time.replace(minute=(first_time.minute // interval_minutes) * interval_minutes, second=0, microsecond=0)
     
-    for tick in ticks:
-        # Calculate which interval this tick belongs to
-        tick_interval_start = tick['time'].replace(
-            minute=(tick['time'].minute // interval_minutes) * interval_minutes,
-            second=0,
-            microsecond=0
-        )
-        
-        if tick_interval_start != interval_start:
-            # New interval started
-            if current_interval:
-                intervals.append((interval_start, current_interval))
-            current_interval = [tick]
-            interval_start = tick_interval_start
-        else:
-            current_interval.append(tick)
+    # Find all interval boundaries
+    interval_boundaries = []
+    current_boundary = market_open
+    last_tick_time = ticks[-1]['time']
     
-    # Don't forget the last interval
-    if current_interval:
-        intervals.append((interval_start, current_interval))
+    while current_boundary <= last_tick_time:
+        current_boundary = current_boundary + timedelta(minutes=interval_minutes)
+        interval_boundaries.append(current_boundary)
+    
+    # Create cumulative intervals - each includes ALL ticks from market open to that boundary
+    for boundary in interval_boundaries:
+        cumulative_ticks = [tick for tick in ticks if tick['time'] < boundary]
+        if cumulative_ticks:
+            intervals.append((boundary, cumulative_ticks))
     
     return intervals
 
@@ -211,12 +204,12 @@ def split_by_intervals(ticks, interval_minutes=10):
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description='Volume Profile by 10-minute intervals')
+    parser = argparse.ArgumentParser(description='Volume Profile by 15-minute cumulative intervals')
     parser.add_argument('--instrument', type=int, help='Instrument token (default: from .env)')
     parser.add_argument('--date', type=str, help='Date (YYYY-MM-DD, default: today)')
     parser.add_argument('--tick-size', type=float, default=5, help='Price grouping interval (default: 5)')
     parser.add_argument('--symbol', type=str, help='Trading symbol for display')
-    parser.add_argument('--interval', type=int, default=10, help='Interval in minutes (default: 10)')
+    parser.add_argument('--interval', type=int, default=15, help='Interval in minutes (default: 15)')
     
     args = parser.parse_args()
     
@@ -258,9 +251,10 @@ def main():
     intervals = split_by_intervals(ticks, args.interval)
     print(f"✓ Split into {len(intervals)} intervals of {args.interval} minutes")
     
-    # Analyze each interval
-    for interval_start, interval_ticks in intervals:
-        interval_name = f"INTERVAL: {interval_start.strftime('%H:%M')} - {(interval_start + timedelta(minutes=args.interval)).strftime('%H:%M')}"
+    # Analyze each interval (cumulative from market open)
+    market_open = ticks[0]['time']
+    for interval_end, interval_ticks in intervals:
+        interval_name = f"CUMULATIVE: {market_open.strftime('%H:%M')} → {interval_end.strftime('%H:%M')}"
         profile = calculate_volume_profile(interval_ticks, tick_size=args.tick_size)
         print_interval_stats(interval_name, interval_ticks, profile)
     
