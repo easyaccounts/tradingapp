@@ -20,29 +20,42 @@ def extract_key_insights(output: str) -> str:
     """Extract strongest levels (⭐ ₹) + full KEY INSIGHTS section"""
     lines = output.split('\n')
     
-    # Extract strongest levels (lines starting with ⭐ ₹)
+    # Find the separator line after the legend (-----)
+    separator_idx = None
+    for i, line in enumerate(lines):
+        if line.startswith('---') and i > 0 and '⭐ =' in lines[i-1]:
+            separator_idx = i
+            break
+    
+    if separator_idx is None:
+        separator_idx = 0  # Fallback if separator not found
+    
+    # Extract strongest levels starting AFTER the separator
     strongest_levels = []
-    i = 0
+    i = separator_idx + 1
     while i < len(lines):
         line = lines[i]
-        # Found a strongest level (must have both ⭐ and ₹ on same line)
+        
+        # Stop if we hit KEY INSIGHTS
+        if 'KEY INSIGHTS' in line:
+            break
+            
+        # Found a strongest level (⭐ ₹)
         if line.startswith('⭐ ₹'):
-            # Capture this level and all its details until next level
             level_lines = [line]
             i += 1
+            # Capture details until next level (starred or non-starred)
             while i < len(lines):
                 next_line = lines[i]
-                # Stop at: next starred level, non-starred level (starts with spaces+₹), separator, or KEY INSIGHTS
+                # Stop at any new level or KEY INSIGHTS
                 if (next_line.startswith('⭐ ₹') or 
                     next_line.startswith('   ₹') or
-                    next_line.startswith('⭐ =') or
-                    next_line.startswith('---') or
                     'KEY INSIGHTS' in next_line):
                     break
                 level_lines.append(next_line)
                 i += 1
             strongest_levels.extend(level_lines)
-            strongest_levels.append("")  # Add spacing between levels
+            strongest_levels.append("")  # Spacing
         else:
             i += 1
     
@@ -54,12 +67,18 @@ def extract_key_insights(output: str) -> str:
             break
     
     if key_insights_start is None:
+        # No KEY INSIGHTS found, return just the levels
+        if strongest_levels:
+            result = ["🌟 STRONGEST PERSISTENT LEVELS"]
+            result.append("=" * 100)
+            result.extend(strongest_levels)
+            return '\n'.join(result).strip()
         return None
     
     # Find end of KEY INSIGHTS
     key_insights_end = len(lines)
     for i in range(key_insights_start + 1, len(lines)):
-        if ('='*50 in lines[i] and 'Analysis complete' in lines[i+1] if i+1 < len(lines) else False):
+        if '='*50 in lines[i]:
             key_insights_end = i
             break
     
@@ -69,7 +88,6 @@ def extract_key_insights(output: str) -> str:
         result.append("🌟 STRONGEST PERSISTENT LEVELS")
         result.append("=" * 100)
         result.extend(strongest_levels)
-        result.append("")
     
     result.extend(lines[key_insights_start:key_insights_end])
     
