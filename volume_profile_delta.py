@@ -226,7 +226,15 @@ def plot_volume_profile(profile, title="Volume Profile with Delta"):
     
     print("="*80)
     
-    plt.show()
+    # Try to show plot, but save if no display available
+    try:
+        plt.show()
+    except:
+        # Headless environment - save to file
+        filename = f"volume_profile_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        plt.savefig(filename, dpi=150, bbox_inches='tight')
+        print(f"\n✓ Chart saved as: {filename}")
+        plt.close()
 
 
 def main():
