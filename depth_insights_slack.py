@@ -33,7 +33,12 @@ def extract_key_insights(output: str) -> str:
             break
     
     if key_insights_start is None:
+        print(f"DEBUG: KEY INSIGHTS not found")
         return None
+    
+    print(f"DEBUG: KEY INSIGHTS at lines {key_insights_start} to {key_insights_end}")
+    
+    print(f"DEBUG: KEY INSIGHTS at lines {key_insights_start} to {key_insights_end}")
     
     # Step 2: Find separator before KEY INSIGHTS (working backwards)
     separator_idx = None
@@ -43,7 +48,11 @@ def extract_key_insights(output: str) -> str:
             break
     
     if separator_idx is None:
+        print(f"DEBUG: No separator found, returning just KEY INSIGHTS")
         return '\n'.join(lines[key_insights_start:key_insights_end]).strip()
+    
+    print(f"DEBUG: Separator at line {separator_idx}, content: '{lines[separator_idx][:50]}...'")
+    print(f"DEBUG: Next line after separator: '{lines[separator_idx + 1][:80]}...'")
     
     # Step 3: Collect ONLY starred levels (⭐ ₹)
     # Start after separator, skip legend/separator lines, stop at first non-starred level
@@ -81,11 +90,16 @@ def extract_key_insights(output: str) -> str:
         result.append("🌟 STRONGEST PERSISTENT LEVELS")
         result.append("=" * 100)
         result.extend(strongest_levels)
+        print(f"DEBUG: Collected {len(strongest_levels)} lines of starred levels")
+    else:
+        print(f"DEBUG: No starred levels collected!")
     
     # Add KEY INSIGHTS
     result.extend(lines[key_insights_start:key_insights_end])
     
-    return '\n'.join(result).strip()
+    final = '\n'.join(result).strip()
+    print(f"DEBUG: Final result length: {len(final)} chars")
+    return final
 
 def send_to_slack(message: str) -> bool:
     """Send insights to Slack"""
