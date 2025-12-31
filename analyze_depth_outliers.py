@@ -135,13 +135,14 @@ def analyze_side_outliers(levels_dict, side_name):
                     'multiplier': snap['qty'] / avg_qty
                 })
     
-    # Display only outliers
+    # Display only top 10 outliers by multiplier
     if outliers:
-        print(f"\n🔴 OUTLIERS DETECTED ({len(outliers)} instances):\n")
+        top_outliers = sorted(outliers, key=lambda x: x['multiplier'], reverse=True)[:10]
+        print(f"\n🔴 TOP 10 OUTLIERS (by multiplier) - Total detected: {len(outliers)}\n")
         print(f"{'Price':<12} {'Qty':<12} {'Orders':<10} {'Qty/Order':<12} {'Multiplier':<12} {'Time':<20}")
         print("-" * 98)
         
-        for outlier in sorted(outliers, key=lambda x: x['qty'], reverse=True):
+        for outlier in top_outliers:
             print(f"{outlier['price']:<12.2f} {outlier['qty']:<12,} {outlier['orders']:<10} "
                   f"{outlier['ratio']:<12,.1f} {outlier['multiplier']:<12.1f}x {str(outlier['time']):<20}")
     else:
