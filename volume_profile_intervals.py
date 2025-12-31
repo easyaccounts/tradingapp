@@ -12,6 +12,16 @@ import json
 
 load_dotenv()
 
+# Token mapping: tick feed uses different IDs than depth feed
+TICK_TO_DEPTH_MAPPING = {
+    12602626: 49229,  # NIFTY JAN 2025 FUT
+}
+
+def get_instrument_tokens(tick_token):
+    """Get both tick and depth tokens for an instrument"""
+    depth_token = TICK_TO_DEPTH_MAPPING.get(tick_token, tick_token)
+    return tick_token, depth_token
+
 
 def get_db_connection():
     """Connect to PostgreSQL database"""
@@ -432,16 +442,17 @@ def main():
     
     args = parser.parse_args()
     
-    # Get instrument token
+    # Get instrument tokens (tick feed uses different ID than depth feed)
     if args.instrument:
-        instrument_token = args.instrument
-        symbol = args.symbol or f"Token {instrument_token}"
+        tick_token = args.instrument
+        symbol = args.symbol or f"Token {tick_token}"
     else:
-        instrument_token = int(os.getenv('SECURITY_ID', 0))
-        symbol = os.getenv('INSTRUMENT_NAME', 'NIFTY FUT')
-        if not instrument_token:
-            print("Error: Please provide --instrument or set SECURITY_ID in .env")
-            return
+        # Default to NIFTY tick token
+        tick_token = 12602626
+        symbol = os.getenv('INSTRUMENT_NAME', 'NIFTY JAN 2025 FUT')
+    
+    # Get corresponding depth token
+    tick_token, depth_token = get_instrument_tokens(tick_token)
     
     # Parse date
     if args.date:
@@ -458,7 +469,8 @@ def main():
     
     # Load data
     print("\nLoading tick data...")
-    ticks = load_tick_data(instrument_token, target_date, target_date)
+    print(f"  Tick Token: {tick_token}, Depth Token: {depth_token}")
+    ticks = load_tick_data(tick_token, target_date, target_date)
     
     if not ticks:
         print("✗ No tick data found for this date")
@@ -478,12 +490,12 @@ def main():
         # Calculate volume profile
         profile = calculate_volume_profile(interval_ticks, tick_size=args.tick_size)
         
-        # Load orderbook depth for this cumulative interval
+        # Load orderbook depth for this cumulative interval (uses depth_token)
         print(f"\n  Loading orderbook data...")
-        orderbook_depth = load_orderbook_depth(instrument_token, market_open, interval_end, tick_size=args.tick_size)
+        orderbook_depth = load_orderbook_depth(depth_token, market_open, interval_end, tick_size=args.tick_size)
         
-        # Load key levels from depth signals
-        key_levels, absorptions = load_key_levels(instrument_token, market_open, interval_end)
+        # Load key levels from depth signals (uses depth_token)
+        key_levels, absorptions = load_key_levels(depth_token, market_open, interval_end)
         
         # Print combined analysis
         print_interval_stats(interval_name, interval_ticks, profile, orderbook_depth, key_levels, absorptions)
