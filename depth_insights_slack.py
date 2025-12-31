@@ -47,11 +47,17 @@ def send_to_slack(message: str) -> bool:
         print("ERROR: SLACK_WEBHOOK_URL not set in .env")
         return False
     
-    # Format for Slack
+    # Format for Slack (blocks-only format like signal generator)
     ist_now = datetime.now().strftime('%H:%M:%S IST')
     payload = {
-        "text": f"*Market Depth Insights - {ist_now}*",
         "blocks": [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"📊 Market Depth Insights - {ist_now}"
+                }
+            },
             {
                 "type": "section",
                 "text": {
@@ -74,6 +80,7 @@ def send_to_slack(message: str) -> bool:
             return True
         else:
             print(f"ERROR: Slack webhook returned {response.status_code}")
+            print(f"Response: {response.text}")
             return False
             
     except Exception as e:
