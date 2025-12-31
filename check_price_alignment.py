@@ -19,6 +19,35 @@ start = '2025-12-31 09:00:00+00:00'
 end = '2025-12-31 09:05:00+00:00'
 
 print("=" * 80)
+print("MARKET HOURS CHECK")
+print("=" * 80)
+print("IST Market Hours: 9:15 AM - 3:30 PM")
+print("UTC Market Hours: 3:45 AM - 10:00 AM")
+print(f"\nQuery window: {start} to {end}")
+print(f"In IST: 2:30 PM to 2:35 PM (mid-market)")
+
+# Get actual market open times
+cur.execute("""
+    SELECT MIN(time), MAX(time)
+    FROM ticks
+    WHERE instrument_token = 12602626
+    AND DATE(time) = '2025-12-31'
+""", ())
+tick_range = cur.fetchone()
+
+cur.execute("""
+    SELECT MIN(time), MAX(time)
+    FROM depth_levels_200
+    WHERE security_id = 49229
+    AND DATE(time) = '2025-12-31'
+""", ())
+depth_range = cur.fetchone()
+
+print(f"\nFull day data ranges on 2025-12-31:")
+print(f"  Ticks:  {tick_range[0]} to {tick_range[1]}")
+print(f"  Depth:  {depth_range[0]} to {depth_range[1]}")
+
+print("\n" + "=" * 80)
 print("TICKS TABLE (Kite feed - token 12602626)")
 print("=" * 80)
 
