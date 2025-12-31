@@ -47,25 +47,15 @@ def send_to_slack(message: str) -> bool:
         print("ERROR: SLACK_WEBHOOK_URL not set in .env")
         return False
     
-    # Format for Slack (blocks-only format like signal generator)
+    # Format for Slack - simple text payload (most compatible)
     ist_now = datetime.now().strftime('%H:%M:%S IST')
+    
+    # Truncate if too long (Slack has 3000 char limit for text blocks)
+    if len(message) > 2900:
+        message = message[:2900] + "\n... (truncated)"
+    
     payload = {
-        "blocks": [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"📊 Market Depth Insights - {ist_now}"
-                }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"```\n{message}\n```"
-                }
-            }
-        ]
+        "text": f"📊 *Market Depth Insights - {ist_now}*\n\n{message}"
     }
     
     try:
