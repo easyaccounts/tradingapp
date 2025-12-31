@@ -232,6 +232,13 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
             avg_quantity = sum(h['quantity'] for h in history) / len(history)
             
             if max_orders >= 5:  # At least hit 5 orders at some point
+                # Calculate composite score: 40% orders, 40% quantity, 20% persistence
+                composite_score = (
+                    (avg_orders * 100 * 0.4) +      # Scale orders, 40% weight
+                    (avg_quantity * 0.4) +          # Volume, 40% weight
+                    (len(history) * 0.2)            # Persistence, 20% weight
+                )
+                
                 persistent_levels.append({
                     'side': side,
                     'price': price,
@@ -240,11 +247,12 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
                     'avg_orders': avg_orders,
                     'max_quantity': max_quantity,
                     'avg_quantity': avg_quantity,
+                    'composite_score': composite_score,
                     'history': history
                 })
     
-    # Sort by average quantity (highest volume levels)
-    persistent_levels.sort(key=lambda x: x['avg_quantity'], reverse=True)
+    # Sort by composite score (highest first)
+    persistent_levels.sort(key=lambda x: x['composite_score'], reverse=True)
     
     print(f"PERSISTENT LEVELS (appeared in ≥{int(persistent_threshold)} snapshots with ≥5 orders peak):")
     print(f"⭐ = Strongest level - used for trade setup in KEY INSIGHTS section below")
