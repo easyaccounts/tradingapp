@@ -17,49 +17,60 @@ SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK_URL')
 SCRIPT_PATH = '/opt/tradingapp/analyze_depth_insights.py'
 
 def extract_key_insights(output: str) -> str:
-    """Extract and filter KEY INSIGHTS section - only strong persistent levels"""
+    """Extract strongest levels (⭐) + full KEY INSIGHTS section"""
     lines = output.split('\n')
     
-    # Find start of KEY INSIGHTS section
-    start_idx = None
+    # Extract strongest levels (marked with ⭐)
+    strongest_levels = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Found a strongest level
+        if line.strip().startswith('⭐'):
+            # Capture this level and all its details until next level or KEY INSIGHTS
+            level_lines = [line]
+            i += 1
+            while i < len(lines):
+                next_line = lines[i]
+                # Stop at next level (⭐ or plain price line) or KEY INSIGHTS
+                if (next_line.strip().startswith('⭐') or 
+                    next_line.strip().startswith('KEY INSIGHTS') or
+                    (next_line.strip().startswith('₹') and 'SUPPORT' in next_line or 'RESISTANCE' in next_line)):
+                    break
+                level_lines.append(next_line)
+                i += 1
+            strongest_levels.extend(level_lines)
+        else:
+            i += 1
+    
+    # Find KEY INSIGHTS section
+    key_insights_start = None
     for i, line in enumerate(lines):
         if 'KEY INSIGHTS' in line and '=' in line:
-            start_idx = i
+            key_insights_start = i
             break
     
-    if start_idx is None:
+    if key_insights_start is None:
         return None
     
-    # Find end of section
-    end_idx = len(lines)
-    for i in range(start_idx + 1, len(lines)):
+    # Find end of KEY INSIGHTS
+    key_insights_end = len(lines)
+    for i in range(key_insights_start + 1, len(lines)):
         if ('='*50 in lines[i] and 'Analysis complete' in lines[i+1] if i+1 < len(lines) else False):
-            end_idx = i
+            key_insights_end = i
             break
     
-    # Extract and filter lines
-    filtered_lines = []
-    skip_next = False
+    # Combine: strongest levels + KEY INSIGHTS
+    result = []
+    if strongest_levels:
+        result.append("🌟 STRONGEST PERSISTENT LEVELS")
+        result.append("=" * 100)
+        result.extend(strongest_levels)
+        result.append("")
     
-    for i in range(start_idx, end_idx):
-        line = lines[i]
-        
-        # Skip the "Trading X points ABOVE/BELOW" line
-        if 'Trading' in line and ('ABOVE' in line or 'BELOW' in line) and 'support' in line.lower():
-            skip_next = True
-            continue
-        
-        # Keep header, price action first line, market bias, and watch lines
-        if (line.strip().startswith('KEY INSIGHTS') or 
-            line.strip().startswith('===') or
-            line.strip().startswith('🎯 PRICE ACTION:') or
-            line.strip().startswith('Next ') or
-            line.strip().startswith('📊 MARKET BIAS:') or
-            line.strip().startswith('⚠️') or
-            line.strip() == ''):
-            filtered_lines.append(line)
+    result.extend(lines[key_insights_start:key_insights_end])
     
-    return '\n'.join(filtered_lines).strip()
+    return '\n'.join(result).strip()
 
 def send_to_slack(message: str) -> bool:
     """Send insights to Slack"""
