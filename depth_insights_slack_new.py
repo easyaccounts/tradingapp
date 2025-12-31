@@ -10,7 +10,7 @@ sys.path.insert(0, '/opt/tradingapp')
 
 from analyze_depth_insights import get_analysis_data, get_volume_at_price, get_db_connection
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
@@ -39,8 +39,9 @@ def format_level_for_slack(level, current_price):
     else:
         signal = "━  STABLE"
     
-    first_seen = history[0]['time'].strftime('%H:%M:%S') if history else ''
-    last_seen = history[-1]['time'].strftime('%H:%M:%S') if history else ''
+    # Convert UTC to IST for display
+    first_seen = (history[0]['time'] + timedelta(hours=5, minutes=30)).strftime('%H:%M:%S') if history else ''
+    last_seen = (history[-1]['time'] + timedelta(hours=5, minutes=30)).strftime('%H:%M:%S') if history else ''
     
     lines = []
     lines.append(f"⭐ ₹{level['price']:>10.2f} {side_label:>10} | Peak: {level['max_orders']:>2} orders | "
@@ -74,7 +75,8 @@ def format_level_for_slack(level, current_price):
     # Timeline
     if len(history) > 0:
         timeline_points = history[::max(1, len(history)//12)][:12]  # Max 12 points
-        timeline = " ".join([f"{h['time'].strftime('%H:%M')}({h['orders']})" for h in timeline_points])
+        # Convert UTC to IST for timeline display
+        timeline = " ".join([f"{(h['time'] + timedelta(hours=5, minutes=30)).strftime('%H:%M')}({h['orders']})" for h in timeline_points])
         lines.append(f"  Timeline: {timeline}")
     
     return '\n'.join(lines)
