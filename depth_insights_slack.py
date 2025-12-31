@@ -20,81 +20,70 @@ def extract_key_insights(output: str) -> str:
     """Extract strongest levels (⭐ ₹) + full KEY INSIGHTS section"""
     lines = output.split('\n')
     
-    # Find SECOND occurrence of the legend separator (the one before actual levels)
-    # First occurrence is in legend at top, second is before the actual levels list
-    separator_indices = []
+    # Find KEY INSIGHTS section first
+    key_insights_start = None
+    key_insights_end = None
     for i, line in enumerate(lines):
-        if line.startswith('----') and len(line) > 50:  # Long separator line
-            # Check if previous line is the legend
-            if i > 0 and '⭐ =' in lines[i-1]:
-                separator_indices.append(i)
+        if 'KEY INSIGHTS' in line and '=' in line:
+            key_insights_start = i
+            # Find end of KEY INSIGHTS
+            for j in range(i + 1, len(lines)):
+                if '='*50 in lines[j]:
+                    key_insights_end = j
+                    break
+            break
     
-    # Use the LAST separator found (actual levels section)
-    if len(separator_indices) > 0:
-        separator_idx = separator_indices[-1]
-    else:
-        separator_idx = 0
+    if key_insights_start is None:
+        return None
     
-    # Extract ONLY strongest levels (⭐ ₹) starting after separator
-    # STOP at first non-starred level (starts with spaces + ₹)
+    # Find last occurrence of separator before KEY INSIGHTS
+    # This separator comes right before the actual strongest levels list
+    separator_idx = None
+    for i in range(key_insights_start - 1, -1, -1):
+        if lines[i].startswith('----') and len(lines[i]) > 50:
+            separator_idx = i
+            break
+    
+    if separator_idx is None:
+        # Fallback: just return KEY INSIGHTS
+        return '\n'.join(lines[key_insights_start:key_insights_end]).strip()
+    
+    # Extract ONLY starred levels AFTER separator and BEFORE first non-starred level
     strongest_levels = []
     i = separator_idx + 1
     
-    while i < len(lines):
+    while i < key_insights_start:
         line = lines[i]
         
-        # Stop if we hit KEY INSIGHTS or a non-starred level
-        if 'KEY INSIGHTS' in line or line.startswith('   ₹'):
+        # Stop at first non-starred level (starts with spaces + ₹)
+        if line.startswith('   ₹'):
             break
-            
+        
         # Found a strongest level (⭐ ₹)
         if line.startswith('⭐ ₹'):
             level_lines = [line]
             i += 1
-            # Capture details until next level
-            while i < len(lines):
+            # Capture detail lines (lines that don't start a new level)
+            while i < key_insights_start:
                 next_line = lines[i]
-                # Stop at next starred level, non-starred level, or KEY INSIGHTS
-                if (next_line.startswith('⭐ ₹') or 
-                    next_line.startswith('   ₹') or
-                    'KEY INSIGHTS' in next_line):
+                # Stop at: any line starting with ⭐ or ₹ or blank line followed by ⭐/₹
+                if (next_line.startswith('⭐') or 
+                    next_line.startswith('   ₹')):
                     break
                 level_lines.append(next_line)
                 i += 1
             strongest_levels.extend(level_lines)
-            strongest_levels.append("")  # Spacing
+            strongest_levels.append("")  # Add spacing
         else:
             i += 1
     
-    # Find KEY INSIGHTS section
-    key_insights_start = None
-    for i, line in enumerate(lines):
-        if 'KEY INSIGHTS' in line and '=' in line:
-            key_insights_start = i
-            break
-    
-    if key_insights_start is None:
-        # No KEY INSIGHTS found, return just the levels
-        if strongest_levels:
-            result = ["🌟 STRONGEST PERSISTENT LEVELS"]
-            result.append("=" * 100)
-            result.extend(strongest_levels)
-            return '\n'.join(result).strip()
-        return None
-    
-    # Find end of KEY INSIGHTS (next === separator)
-    key_insights_end = len(lines)
-    for i in range(key_insights_start + 1, len(lines)):
-        if '='*50 in lines[i]:
-            key_insights_end = i
-            break
-    
-    # Combine: strongest levels + KEY INSIGHTS
+    # Build result
     result = []
     if strongest_levels:
         result.append("🌟 STRONGEST PERSISTENT LEVELS")
         result.append("=" * 100)
         result.extend(strongest_levels)
+        result.append("")
     
     result.extend(lines[key_insights_start:key_insights_end])
     
