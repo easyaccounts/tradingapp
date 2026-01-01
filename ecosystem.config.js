@@ -283,7 +283,8 @@ module.exports = {
       cron_restart: '30 3 * * 1-5',  // 9:00 AM IST = 03:30 UTC, Mon-Fri
       watch: false,
       env: {
-        PATH: '/usr/local/bin:/usr/bin:/bin'
+        PATH: '/usr/local/bin:/usr/bin:/bin',
+        TZ: 'UTC'
       },
       error_file: '/opt/tradingapp/logs/market-start-error.log',
       out_file: '/opt/tradingapp/logs/market-start-out.log',
@@ -301,7 +302,8 @@ module.exports = {
       cron_restart: '30 10 * * 1-5',  // 4:00 PM IST = 10:30 UTC, Mon-Fri
       watch: false,
       env: {
-        PATH: '/usr/local/bin:/usr/bin:/bin'
+        PATH: '/usr/local/bin:/usr/bin:/bin',
+        TZ: 'UTC'
       },
       error_file: '/opt/tradingapp/logs/market-stop-error.log',
       out_file: '/opt/tradingapp/logs/market-stop-out.log',
