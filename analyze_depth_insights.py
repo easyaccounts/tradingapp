@@ -176,14 +176,13 @@ def find_strongest_levels(bids, asks, top_n=3):
     return top_bids, top_asks
 
 def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
-    """Track how key price levels evolve over time"""
+    """Track how key price levels evolve over time (uses all snapshots)"""
     snapshots = get_snapshots(conn)
     
     if len(snapshots) < 2:
         print("Not enough data for evolution analysis")
         return None, None
 
-    # Use all snapshots (no downsampling)
     sampled = snapshots
     print(f"\n{'='*100}")
     print(f"LEVEL EVOLUTION TRACKING - {len(sampled)} snapshots (full set)")
@@ -226,13 +225,7 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
             avg_quantity = sum(h['quantity'] for h in history) / len(history)
             
             if max_orders >= 5:  # At least hit 5 orders at some point
-                # Calculate composite score: 40% orders, 40% quantity, 20% persistence
-                composite_score = (
-                    (avg_orders * 100 * 0.4) +      # Scale orders, 40% weight
-                    (avg_quantity * 0.4) +          # Volume, 40% weight
-                    (len(history) * 0.2)            # Persistence, 20% weight
-                )
-                
+                # Ranking now based purely on average resting orders ("Avg" shown below)
                 persistent_levels.append({
                     'side': side,
                     'price': price,
@@ -241,18 +234,18 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
                     'avg_orders': avg_orders,
                     'max_quantity': max_quantity,
                     'avg_quantity': avg_quantity,
-                    'composite_score': composite_score,
+                    'composite_score': avg_orders,  # kept key for downstream consumers
                     'history': history
                 })
     
-    # Sort by composite score (highest first)
-    persistent_levels.sort(key=lambda x: x['composite_score'], reverse=True)
+    # Sort by average orders (highest first)
+    persistent_levels.sort(key=lambda x: x['avg_orders'], reverse=True)
     
     print(f"PERSISTENT LEVELS (appeared in ≥{int(persistent_threshold)} snapshots with ≥5 orders peak):")
-    print(f"⭐ = Strongest of each side (composite score: 40% orders, 40% quantity, 20% persistence)")
+    print(f"⭐ = Highest average resting orders per side (ranked by Avg orders)")
     print(f"{'-'*100}")
     
-    # Get strongest of each side based on composite score
+    # Get strongest of each side based on average orders
     bid_levels = [l for l in persistent_levels if l['side'] == 'bid']
     ask_levels = [l for l in persistent_levels if l['side'] == 'ask']
     strongest_support = bid_levels[0] if bid_levels else None
@@ -284,10 +277,9 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
         
         first_seen = history[0]['time'].strftime('%H:%M:%S')
         last_seen = history[-1]['time'].strftime('%H:%M:%S')
-        
         print(f"{marker} ₹{level['price']:>10.2f} {side_label:>10} | Peak: {level['max_orders']:>2} orders | "
               f"Avg: {level['avg_orders']:>4.1f} | Seen: {level['appearances']:>3}x | "
-              f"{first_seen} → {last_seen} | Score: {level['composite_score']:>6.0f}")
+              f"{first_seen} → {last_seen} | Rank (Avg orders): {level['avg_orders']:>5.1f}")
         print(f"  Qty: Peak {level['max_quantity']:,} | Avg {level['avg_quantity']:,.0f}")
         print(f"  {signal}")
         
