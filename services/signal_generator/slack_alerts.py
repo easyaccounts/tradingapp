@@ -20,12 +20,21 @@ class SlackAlerter:
     def should_send_alert(self, signal_type: str, data: dict) -> bool:
         """
         Determine if alert should be sent based on:
-        - Cooldown period (5 minutes between similar alerts)
+        - Cooldown period (5 minutes) keyed per level for key_level; global for others
         - Signal confidence/strength
         """
-        # Check cooldown
-        if signal_type in self.last_alerts:
-            last_time = self.last_alerts[signal_type]
+        # Check cooldown (pressure_change has no cooldown)
+        cooldown_key = signal_type
+        if signal_type == 'key_level':
+            price = data.get('price')
+            side = data.get('side')
+            if price is not None and side:
+                cooldown_key = f"key_level:{side}:{float(price):.2f}"
+        elif signal_type == 'pressure_change':
+            cooldown_key = None
+        
+        if cooldown_key and cooldown_key in self.last_alerts:
+            last_time = self.last_alerts[cooldown_key]
             if datetime.now() - last_time < timedelta(minutes=self.cooldown_minutes):
                 return False
         
@@ -72,7 +81,15 @@ class SlackAlerter:
             )
             
             if response.status_code == 200:
-                self.last_alerts[signal_type] = datetime.now()
+                if signal_type == 'pressure_change':
+                    pass  # no cooldown tracking for pressure changes
+                elif signal_type == 'key_level':
+                    price = data.get('price')
+                    side = data.get('side')
+                    key = f"key_level:{side}:{float(price):.2f}" if price is not None and side else 'key_level'
+                    self.last_alerts[key] = datetime.now()
+                else:
+                    self.last_alerts[signal_type] = datetime.now()
                 return True
             else:
                 print(f"Slack webhook failed: {response.status_code} - {response.text}")
