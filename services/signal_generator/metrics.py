@@ -41,6 +41,7 @@ def identify_key_levels(current_snapshot: dict, level_tracker, current_price: fl
             current_big_levels[price] = {
                 'price': price,
                 'orders': orders,
+                'quantity': level['quantity'],
                 'side': side,
                 'strength': orders / avg_orders
             }
@@ -49,10 +50,10 @@ def identify_key_levels(current_snapshot: dict, level_tracker, current_price: fl
     for price, data in current_big_levels.items():
         if level_tracker.get_level(price):
             # Existing level - update
-            level_tracker.update_level(price, data['orders'], current_price, timestamp)
+            level_tracker.update_level(price, data['orders'], data['quantity'], current_price, timestamp)
         else:
             # New level - start tracking
-            level_tracker.add_level(price, data['side'], data['orders'], timestamp)
+            level_tracker.add_level(price, data['side'], data['orders'], data['quantity'], timestamp)
     
     # Clean up stale levels
     level_tracker.cleanup_stale_levels(current_price, timestamp)
@@ -63,6 +64,8 @@ def identify_key_levels(current_snapshot: dict, level_tracker, current_price: fl
             'price': lvl.price,
             'side': lvl.side,
             'orders': lvl.current_orders,
+            'peak_quantity': lvl.peak_quantity,
+            'avg_quantity': lvl.avg_quantity,
             'strength': lvl.current_orders / avg_orders,
             'age_seconds': lvl.age_seconds,
             'age_display': lvl.age_display,

@@ -10,29 +10,36 @@ from typing import Optional
 class TrackedLevel:
     """Represents a tracked price level with order concentration"""
     
-    def __init__(self, price: float, side: str, initial_orders: int, timestamp: datetime):
+    def __init__(self, price: float, side: str, initial_orders: int, initial_quantity: int, timestamp: datetime):
         self.price = float(price)  # Ensure float type
         self.side = side  # 'support' or 'resistance'
         self.first_seen = timestamp
         self.peak_orders = initial_orders
         self.current_orders = initial_orders
+        self.peak_quantity = initial_quantity
+        self.current_quantity = initial_quantity
         self.order_history = [(timestamp, initial_orders)]
+        self.quantity_history = [(timestamp, initial_quantity)]
         self.price_distance_history = []
         self.price_touched = False
         self.tests = 0  # How many times price tested this level
         self.status = 'forming'  # forming → active → breaking → broken
         self.last_updated = timestamp
     
-    def update(self, orders: int, current_price: float, timestamp: datetime):
+    def update(self, orders: int, quantity: int, current_price: float, timestamp: datetime):
         """Update level with new data"""
         current_price = float(current_price)  # Ensure float type
         self.current_orders = orders
+        self.current_quantity = quantity
         self.last_updated = timestamp
         
         # Track history (keep last 60 snapshots)
         self.order_history.append((timestamp, orders))
         if len(self.order_history) > 60:
             self.order_history.pop(0)
+        self.quantity_history.append((timestamp, quantity))
+        if len(self.quantity_history) > 60:
+            self.quantity_history.pop(0)
         
         # Track price distance
         distance = abs(current_price - self.price)
@@ -45,9 +52,11 @@ class TrackedLevel:
             self.price_touched = True
             self.tests += 1
         
-        # Update peak
+        # Update peaks
         if orders > self.peak_orders:
             self.peak_orders = orders
+        if quantity > self.peak_quantity:
+            self.peak_quantity = quantity
         
         # Update status
         if self.age_seconds > 10:
@@ -68,6 +77,13 @@ class TrackedLevel:
             return f"{age // 60}m {age % 60}s"
         else:
             return f"{age // 3600}h {(age % 3600) // 60}m"
+
+    @property
+    def avg_quantity(self) -> float:
+        """Average resting quantity over stored history"""
+        if not self.quantity_history:
+            return 0.0
+        return sum(q for _, q in self.quantity_history) / len(self.quantity_history)
     
     def get_order_trend(self, window: int = 20) -> str:
         """Analyze if orders are increasing, decreasing, or stable"""
@@ -105,6 +121,8 @@ class TrackedLevel:
             'side': self.side,
             'orders': self.current_orders,
             'peak_orders': self.peak_orders,
+            'quantity': self.current_quantity,
+            'peak_quantity': self.peak_quantity,
             'age_seconds': self.age_seconds,
             'age_display': self.age_display,
             'tests': self.tests,
@@ -120,17 +138,17 @@ class LevelTracker:
     def __init__(self):
         self.levels = {}  # price -> TrackedLevel
     
-    def add_level(self, price: float, side: str, orders: int, timestamp: datetime):
+    def add_level(self, price: float, side: str, orders: int, quantity: int, timestamp: datetime):
         """Add a new level to track"""
         price = float(price)  # Ensure float type
-        self.levels[price] = TrackedLevel(price, side, orders, timestamp)
+        self.levels[price] = TrackedLevel(price, side, orders, quantity, timestamp)
     
-    def update_level(self, price: float, orders: int, current_price: float, timestamp: datetime):
+    def update_level(self, price: float, orders: int, quantity: int, current_price: float, timestamp: datetime):
         """Update existing level"""
         price = float(price)  # Ensure float type
         current_price = float(current_price)  # Ensure float type
         if price in self.levels:
-            self.levels[price].update(orders, current_price, timestamp)
+            self.levels[price].update(orders, quantity, current_price, timestamp)
     
     def remove_level(self, price: float):
         """Remove a level from tracking"""

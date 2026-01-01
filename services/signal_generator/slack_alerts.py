@@ -115,6 +115,8 @@ class SlackAlerter:
         """Format key level discovery alert"""
         side = data['side']
         emoji = "🟢" if side == 'support' else "🔴"
+        peak_qty = data.get('peak_quantity', 0)
+        avg_qty = data.get('avg_quantity', 0)
         
         return {
             "blocks": [
@@ -143,6 +145,10 @@ class SlackAlerter:
                         {
                             "type": "mrkdwn",
                             "text": f"*Age:*\n{data['age_display']}"
+                        },
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Qty (peak/avg):*\n{peak_qty:,} / {avg_qty:,.0f}"
                         }
                     ]
                 },
