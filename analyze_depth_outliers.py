@@ -99,7 +99,7 @@ def analyze_depth_outliers(security_id=49229):
 
 
 def analyze_side_outliers(levels_dict, side_name):
-    """Analyze outliers for one side (BID or ASK) - Orders >= 10x average is outlier"""
+    """Analyze outliers for one side (BID or ASK) - Orders >= 15x average is outlier"""
     
     # Aggregate all orders
     all_orders = []
@@ -114,11 +114,11 @@ def analyze_side_outliers(levels_dict, side_name):
     
     # Calculate average orders
     avg_orders = sum(all_orders) / len(all_orders)
-    outlier_threshold = avg_orders * 10
+    outlier_threshold = avg_orders * 15
     
     print(f"\nStatistics ({len(all_orders)} total snapshots):")
     print(f"  Average Orders:      {avg_orders:,.1f}")
-    print(f"  Outlier Threshold:   {outlier_threshold:,.1f} (10x avg)")
+    print(f"  Outlier Threshold:   {outlier_threshold:,.1f} (15x avg)")
     
     # Collect only outliers (orders >= 20x average)
     outliers = []
@@ -146,7 +146,7 @@ def analyze_side_outliers(levels_dict, side_name):
             print(f"{outlier['price']:<12.2f} {outlier['orders']:<12} {outlier['qty']:<12,} "
                   f"{outlier['ratio']:<12,.1f} {outlier['multiplier']:<12.1f}x {str(outlier['time']):<20}")
     else:
-        print(f"\n✓ No outliers detected on {side_name} side (Orders < 10x average)")
+        print(f"\n✓ No outliers detected on {side_name} side (Orders < 15x average)")
 
 
 if __name__ == "__main__":

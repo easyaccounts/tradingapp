@@ -182,17 +182,11 @@ def track_level_evolution(conn, sample_interval_seconds=10, current_price=None):
     if len(snapshots) < 2:
         print("Not enough data for evolution analysis")
         return None, None
-    
-    # Sample snapshots at regular intervals
-    sampled = []
-    last_time = None
-    for ts in snapshots:
-        if last_time is None or (ts - last_time).total_seconds() >= sample_interval_seconds:
-            sampled.append(ts)
-            last_time = ts
-    
+
+    # Use all snapshots (no downsampling)
+    sampled = snapshots
     print(f"\n{'='*100}")
-    print(f"LEVEL EVOLUTION TRACKING - {len(sampled)} sample points at {sample_interval_seconds}-second intervals")
+    print(f"LEVEL EVOLUTION TRACKING - {len(sampled)} snapshots (full set)")
     print(f"{'='*100}\n")
     
     # Track each price level's order count over time
