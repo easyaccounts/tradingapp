@@ -98,19 +98,31 @@ def detect_absorptions(level_tracker, snapshot_buffer: deque, current_price: flo
     
     if not snapshots_ago or not current_snapshots:
         return []
+
+    # Baseline: average resting orders across the older window
+    all_orders_ago = [
+        lvl['orders']
+        for snap in snapshots_ago
+        for lvl in snap.get('bids', []) + snap.get('asks', [])
+        if lvl['orders'] > 0
+    ]
+    avg_orders_ago = statistics.mean(all_orders_ago) if all_orders_ago else 0
+    if avg_orders_ago == 0:
+        return []
+    big_level_threshold = avg_orders_ago * 3  # match key-level style (3x average)
     
     for level in level_tracker.get_all_levels():
         price = level.price
         
-        # Only check significant levels
-        if level.peak_orders < 50:
+        # Only check significant levels (3x average)
+        if level.peak_orders < big_level_threshold:
             continue
         
         # Get average orders at this price in both windows
         orders_before = get_avg_orders_at_price(snapshots_ago, price)
         orders_now = get_avg_orders_at_price(current_snapshots, price)
         
-        if orders_before < 50:  # Wasn't big enough back then
+        if orders_before < big_level_threshold:  # Wasn't big enough back then
             continue
         
         # Calculate reduction
