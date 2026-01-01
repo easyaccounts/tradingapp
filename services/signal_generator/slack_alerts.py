@@ -48,7 +48,7 @@ class SlackAlerter:
         
         elif signal_type == 'pressure_change':
             # Only alert on strong pressure (0.4+ imbalance)
-            primary = data.get('pressure_60s', 0)
+            primary = data.get('pressure_60s', data.get('60s', 0))
             if abs(primary) < 0.4:
                 return False
         
@@ -217,15 +217,15 @@ class SlackAlerter:
                     "fields": [
                         {
                             "type": "mrkdwn",
-                            "text": f"*30s:*\n{data['pressure_30s']:+.3f}"
+                            "text": f"*30s:*\n{data.get('pressure_30s', data.get('30s', 0)):+.3f}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*60s:*\n{data['pressure_60s']:+.3f}"
+                            "text": f"*60s:*\n{data.get('pressure_60s', data.get('60s', 0)):+.3f}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*120s:*\n{data['pressure_120s']:+.3f}"
+                            "text": f"*120s:*\n{data.get('pressure_120s', data.get('120s', 0)):+.3f}"
                         },
                         {
                             "type": "mrkdwn",
