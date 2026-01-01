@@ -104,8 +104,9 @@ def replay_signals(target_date_str, output_file=None):
         snapshot_buffer = deque(maxlen=600)
         calculation_interval = 10  # seconds
         last_calculation_time = None
-        
         signals_output = []
+        
+        print("Processing snapshots (calculating every 10 seconds)...")
         
         # Process each snapshot
         for i, ts in enumerate(snapshots):
@@ -122,37 +123,23 @@ def replay_signals(target_date_str, output_file=None):
                 absorptions = detect_absorptions(level_tracker, snapshot_buffer, current_price)
                 pressure = calculate_pressure(snapshot_buffer, current_price)
                 
-                # Log signals
-                if key_levels or absorptions or pressure['state'] != 'neutral':
-                    signal_log = {
-                        'timestamp': ts.isoformat(),
-                        'current_price': current_price,
-                        'key_levels_count': len(key_levels),
-                        'key_levels': key_levels[:3] if key_levels else [],
-                        'absorptions_count': len(absorptions),
-                        'absorptions': absorptions,
-                        'pressure': pressure
-                    }
-                    signals_output.append(signal_log)
-                    
-                    # Print summary
-                    print(f"[{ts.strftime('%H:%M:%S')}] Price: ₹{current_price:.2f} | "
-                          f"Key levels: {len(key_levels)} | Absorptions: {len(absorptions)} | "
-                          f"Pressure: {pressure['state']} ({pressure['60s']:+.3f})")
-                    
-                    if key_levels:
-                        for lvl in key_levels[:2]:
-                            print(f"  ├─ {lvl['side'].upper()} ₹{lvl['price']:.2f} (strength: {lvl['strength']:.1f}x)")
-                    
-                    if absorptions:
-                        for abs in absorptions:
-                            print(f"  └─ ABSORPTION {abs['side'].upper()} ₹{abs['price']:.2f} ({abs['reduction_pct']}% reduction)")
+                # Save signals to output (no console logging)
+                signal_log = {
+                    'timestamp': ts.isoformat(),
+                    'current_price': current_price,
+                    'key_levels_count': len(key_levels),
+                    'key_levels': key_levels,
+                    'absorptions_count': len(absorptions),
+                    'absorptions': absorptions,
+                    'pressure': pressure
+                }
+                signals_output.append(signal_log)
                 
                 last_calculation_time = ts
             
-            # Progress indicator
+            # Progress indicator every 100 snapshots
             if (i + 1) % 100 == 0:
-                print(f"  Processed {i + 1}/{len(snapshots)} snapshots...")
+                print(f"  {i + 1}/{len(snapshots)} snapshots processed...")
         
         # Save output
         if output_file:
