@@ -152,96 +152,55 @@ def get_current_spot_price(conn):
         cursor.close()
 
 
-def get_all_nifty_options_data(conn, expiry, cutoff_time=None, use_closest_time=False):
+def get_all_nifty_options_data(conn, expiry, cutoff_time=None):
     """
-    Get tick data for all NIFTY options at a specific time
+    Get latest tick data for all NIFTY options (no time window filtering)
     OPTIMIZED: 
     - Uses index on (instrument_token, time) for fast filtering
-    - Can fetch latest OR closest to a specific time
+    - Fetches absolute latest tick for each instrument
     - Fetch on segment+expiry first (narrow down rows fast)
-    
-    Args:
-        cutoff_time: datetime to fetch ticks for (default: now)
-        use_closest_time: if True, get closest tick to cutoff_time; if False, get latest <= cutoff_time
     """
     
     if cutoff_time is None:
         cutoff_time = datetime.now(IST)
     
     cutoff_utc = cutoff_time.astimezone(pytz.UTC)
-    start_time_utc = cutoff_utc - timedelta(hours=2)  # 2-hour window for search
     
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     # OPTIMIZED: Use filtered subquery approach (PostgreSQL planner optimizes better)
-    if use_closest_time:
-        # Get tick CLOSEST to cutoff_time (either direction)
-        query = """
-        WITH filtered_instruments AS (
-            SELECT instrument_token, trading_symbol, strike, instrument_type
-            FROM instruments
-            WHERE segment = 'NFO-OPT'
-            AND expiry = %s
-            AND exchange = 'NFO'
-            AND name LIKE 'NIFTY%%'
-        ),
-        closest_ticks AS (
-            SELECT 
-                fi.instrument_token,
-                fi.trading_symbol,
-                fi.strike,
-                fi.instrument_type,
-                t.last_price,
-                t.oi,
-                t.volume_traded,
-                t.time,
-                ABS(EXTRACT(EPOCH FROM (t.time - %s))) as time_diff,
-                ROW_NUMBER() OVER (PARTITION BY t.instrument_token ORDER BY ABS(EXTRACT(EPOCH FROM (t.time - %s))) ASC) as rn
-            FROM filtered_instruments fi
-            INNER JOIN ticks t ON fi.instrument_token = t.instrument_token
-            WHERE t.time >= %s AND t.time <= %s
-        )
+    # No time window - just get the absolute latest tick for each instrument
+    query = """
+    WITH filtered_instruments AS (
+        SELECT instrument_token, trading_symbol, strike, instrument_type
+        FROM instruments
+        WHERE segment = 'NFO-OPT'
+        AND expiry = %s
+        AND exchange = 'NFO'
+        AND name LIKE 'NIFTY%%'
+    ),
+    latest_ticks AS (
         SELECT 
-            instrument_token, trading_symbol, strike, instrument_type,
-            last_price, oi, volume_traded
-        FROM closest_ticks
-        WHERE rn = 1
-        ORDER BY strike, instrument_type
-        """
-        cursor.execute(query, (expiry, cutoff_utc, cutoff_utc, start_time_utc, cutoff_utc))
-    else:
-        # Get latest tick <= cutoff_time
-        query = """
-        WITH filtered_instruments AS (
-            SELECT instrument_token, trading_symbol, strike, instrument_type
-            FROM instruments
-            WHERE segment = 'NFO-OPT'
-            AND expiry = %s
-            AND exchange = 'NFO'
-            AND name LIKE 'NIFTY%%'
-        ),
-        latest_ticks AS (
-            SELECT 
-                fi.instrument_token,
-                fi.trading_symbol,
-                fi.strike,
-                fi.instrument_type,
-                t.last_price,
-                t.oi,
-                t.volume_traded,
-                ROW_NUMBER() OVER (PARTITION BY t.instrument_token ORDER BY t.time DESC) as rn
-            FROM filtered_instruments fi
-            INNER JOIN ticks t ON fi.instrument_token = t.instrument_token
-            WHERE t.time >= %s AND t.time <= %s
-        )
-        SELECT 
-            instrument_token, trading_symbol, strike, instrument_type,
-            last_price, oi, volume_traded
-        FROM latest_ticks
-        WHERE rn = 1
-        ORDER BY strike, instrument_type
-        """
-        cursor.execute(query, (expiry, start_time_utc, cutoff_utc))
+            fi.instrument_token,
+            fi.trading_symbol,
+            fi.strike,
+            fi.instrument_type,
+            t.last_price,
+            t.oi,
+            t.volume_traded,
+            ROW_NUMBER() OVER (PARTITION BY t.instrument_token ORDER BY t.time DESC) as rn
+        FROM filtered_instruments fi
+        INNER JOIN ticks t ON fi.instrument_token = t.instrument_token
+        WHERE t.time <= %s
+    )
+    SELECT 
+        instrument_token, trading_symbol, strike, instrument_type,
+        last_price, oi, volume_traded
+    FROM latest_ticks
+    WHERE rn = 1
+    ORDER BY strike, instrument_type
+    """
+    cursor.execute(query, (expiry, cutoff_utc))
     
     try:
         return cursor.fetchall()
@@ -557,7 +516,7 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None, verbose=True):
         
         # Get all options data
         t3 = time.time()
-        options_data = get_all_nifty_options_data(conn, expiry, cutoff_time, use_closest_time=False)
+        options_data = get_all_nifty_options_data(conn, expiry, cutoff_time)
         t4 = time.time()
         
         if not options_data:
