@@ -189,34 +189,52 @@ def analyze_market_modes(signals):
 
 
 def analyze_pressure_price_correlation(signals):
-    """Analyze how price moved with pressure changes"""
+    """Analyze how price moved with pressure DELTA (rate of change)"""
     pressure_segments = []
     current_segment = None
+    prev_pressure = None
     
     for i, record in enumerate(signals):
         time = record['time'].astimezone(IST)
         price = float(record['current_price'])
         pressure = float(record['pressure_60s']) if record['pressure_60s'] else 0
-        state = get_state_from_pressure(pressure)
+        
+        # Calculate pressure delta
+        if prev_pressure is not None:
+            pressure_delta = pressure - prev_pressure
+        else:
+            pressure_delta = 0
+        
+        # Determine delta direction
+        if pressure_delta > 0.05:
+            delta_state = 'strengthening'  # Pressure increasing (more buying)
+        elif pressure_delta < -0.05:
+            delta_state = 'weakening'      # Pressure decreasing (less buying)
+        else:
+            delta_state = 'stable'         # Pressure stable
         
         # Start new segment or continue
-        if current_segment is None or state != current_segment['state']:
+        if current_segment is None or delta_state != current_segment['delta_state']:
             if current_segment is not None:
                 pressure_segments.append(current_segment)
             
             current_segment = {
-                'state': state,
+                'delta_state': delta_state,
                 'start_time': time,
                 'start_price': price,
                 'start_pressure': pressure,
                 'prices': [price],
                 'pressures': [pressure],
+                'deltas': [pressure_delta],
                 'times': [time]
             }
         else:
             current_segment['prices'].append(price)
             current_segment['pressures'].append(pressure)
+            current_segment['deltas'].append(pressure_delta)
             current_segment['times'].append(time)
+        
+        prev_pressure = pressure
     
     # Add final segment
     if current_segment is not None:
@@ -231,6 +249,9 @@ def analyze_pressure_price_correlation(signals):
         segment['price_move'] = segment['end_price'] - segment['start_price']
         segment['price_change_pct'] = (segment['price_move'] / segment['start_price']) * 100
         segment['avg_pressure'] = sum(segment['pressures']) / len(segment['pressures'])
+        segment['avg_delta'] = sum(segment['deltas']) / len(segment['deltas'])
+        segment['max_delta'] = max(segment['deltas'])
+        segment['min_delta'] = min(segment['deltas'])
         segment['price_high'] = max(segment['prices'])
         segment['price_low'] = min(segment['prices'])
         segment['price_range'] = segment['price_high'] - segment['price_low']
@@ -373,84 +394,87 @@ def print_report(signals):
     
     # NEW: Pressure vs Price correlation analysis
     print("\n" + "="*80)
-    print("💹 PRESSURE vs PRICE MOVEMENT")
+    print("💹 PRESSURE DELTA vs PRICE MOVEMENT")
     print("="*80)
     
     segments = analyze_pressure_price_correlation(signals)
     
-    print(f"\nDetected {len(segments)} pressure periods:\n")
-    print(f"{'#':<3} {'State':<10} {'Duration':<12} {'Price Start':<14} {'Price End':<14} {'Price Move':<12} {'Avg Pressure':<14}")
-    print("-"*80)
+    print(f"\nDetected {len(segments)} pressure delta periods:\n")
+    print(f"{'#':<3} {'Delta State':<15} {'Duration':<12} {'Price Start':<14} {'Price End':<14} {'Price Move':<12} {'Avg Delta':<12}")
+    print("-"*95)
     
     for i, seg in enumerate(segments, 1):
-        icon = "🟢" if seg['state'] == 'bullish' else "🔴" if seg['state'] == 'bearish' else "⚪"
+        icon = "📈" if seg['delta_state'] == 'strengthening' else "📉" if seg['delta_state'] == 'weakening' else "➡️"
         duration_min = seg['duration_sec'] / 60
         move_str = f"{seg['price_move']:+.2f}"
         pct_str = f"({seg['price_change_pct']:+.2f}%)"
         
-        print(f"{i:<3} {icon} {seg['state']:<7} {duration_min:>6.1f}m {seg['start_price']:>12.2f} → {seg['end_price']:>12.2f} {move_str:>10} {pct_str:<11} {seg['avg_pressure']:+.3f}")
+        print(f"{i:<3} {icon} {seg['delta_state']:<13} {duration_min:>6.1f}m {seg['start_price']:>12.2f} → {seg['end_price']:>12.2f} {move_str:>10} {pct_str:<11} {seg['avg_delta']:+.5f}")
     
     # Insights
     print("\n" + "="*80)
-    print("🔍 PRESSURE-PRICE INSIGHTS")
+    print("🔍 PRESSURE DELTA INSIGHTS")
     print("="*80)
     
     if segments:
-        bullish_segments = [s for s in segments if s['state'] == 'bullish']
-        bearish_segments = [s for s in segments if s['state'] == 'bearish']
-        neutral_segments = [s for s in segments if s['state'] == 'neutral']
+        strengthening_segs = [s for s in segments if s['delta_state'] == 'strengthening']
+        weakening_segs = [s for s in segments if s['delta_state'] == 'weakening']
+        stable_segs = [s for s in segments if s['delta_state'] == 'stable']
         
-        if bullish_segments:
-            avg_bullish_move = sum(s['price_move'] for s in bullish_segments) / len(bullish_segments)
-            total_bullish_move = sum(s['price_move'] for s in bullish_segments)
-            bullish_accuracy = sum(1 for s in bullish_segments if s['price_move'] > 0) / len(bullish_segments)
-            print(f"\n🟢 BULLISH Periods ({len(bullish_segments)} times):")
-            print(f"   Average price move: {avg_bullish_move:+.2f}")
-            print(f"   Total price move: {total_bullish_move:+.2f}")
-            print(f"   Accuracy (price up): {bullish_accuracy*100:.0f}%")
+        if strengthening_segs:
+            avg_strengthen_move = sum(s['price_move'] for s in strengthening_segs) / len(strengthening_segs)
+            total_strengthen_move = sum(s['price_move'] for s in strengthening_segs)
+            strengthen_accuracy = sum(1 for s in strengthening_segs if s['price_move'] > 0) / len(strengthening_segs)
+            print(f"\n📈 STRENGTHENING Periods (Pressure Increasing - {len(strengthening_segs)} times):")
+            print(f"   Average price move: {avg_strengthen_move:+.2f}")
+            print(f"   Total price move: {total_strengthen_move:+.2f}")
+            print(f"   Accuracy (price up): {strengthen_accuracy*100:.0f}%")
+            print(f"   Interpretation: Buying pressure building up")
         
-        if bearish_segments:
-            avg_bearish_move = sum(s['price_move'] for s in bearish_segments) / len(bearish_segments)
-            total_bearish_move = sum(s['price_move'] for s in bearish_segments)
-            bearish_accuracy = sum(1 for s in bearish_segments if s['price_move'] < 0) / len(bearish_segments)
-            print(f"\n🔴 BEARISH Periods ({len(bearish_segments)} times):")
-            print(f"   Average price move: {avg_bearish_move:+.2f}")
-            print(f"   Total price move: {total_bearish_move:+.2f}")
-            print(f"   Accuracy (price down): {bearish_accuracy*100:.0f}%")
+        if weakening_segs:
+            avg_weaken_move = sum(s['price_move'] for s in weakening_segs) / len(weakening_segs)
+            total_weaken_move = sum(s['price_move'] for s in weakening_segs)
+            weaken_accuracy = sum(1 for s in weakening_segs if s['price_move'] < 0) / len(weakening_segs)
+            print(f"\n📉 WEAKENING Periods (Pressure Decreasing - {len(weakening_segs)} times):")
+            print(f"   Average price move: {avg_weaken_move:+.2f}")
+            print(f"   Total price move: {total_weaken_move:+.2f}")
+            print(f"   Accuracy (price down): {weaken_accuracy*100:.0f}%")
+            print(f"   Interpretation: Buying pressure fading")
         
-        if neutral_segments:
-            avg_neutral_range = sum(s['price_range'] for s in neutral_segments) / len(neutral_segments)
-            print(f"\n⚪ NEUTRAL Periods ({len(neutral_segments)} times):")
-            print(f"   Average price range: {avg_neutral_range:.2f}")
+        if stable_segs:
+            avg_stable_range = sum(s['price_range'] for s in stable_segs) / len(stable_segs)
+            print(f"\n➡️  STABLE Periods (Pressure Unchanged - {len(stable_segs)} times):")
+            print(f"   Average price range: {avg_stable_range:.2f}")
+            print(f"   Interpretation: Pressure holding, consolidation")
         
-        # Find best and worst pressure signal
+        # Find best and worst delta signal
         best_segment = max(segments, key=lambda x: x['price_move'])
         worst_segment = min(segments, key=lambda x: x['price_move'])
         
         print(f"\n✅ Best Signal:")
-        print(f"   {best_segment['state'].upper()} period: +₹{best_segment['price_move']:.2f} ({best_segment['price_change_pct']:+.2f}%)")
+        print(f"   {best_segment['delta_state'].upper()} period: +₹{best_segment['price_move']:.2f} ({best_segment['price_change_pct']:+.2f}%)")
         print(f"   Time: {best_segment['start_time'].strftime('%H:%M')} - {best_segment['end_time'].strftime('%H:%M')}")
-        print(f"   Avg Pressure: {best_segment['avg_pressure']:+.3f}")
+        print(f"   Avg Pressure Delta: {best_segment['avg_delta']:+.5f}")
         
         print(f"\n❌ Worst Signal:")
-        print(f"   {worst_segment['state'].upper()} period: {worst_segment['price_move']:+.2f} ({worst_segment['price_change_pct']:+.2f}%)")
+        print(f"   {worst_segment['delta_state'].upper()} period: {worst_segment['price_move']:+.2f} ({worst_segment['price_change_pct']:+.2f}%)")
         print(f"   Time: {worst_segment['start_time'].strftime('%H:%M')} - {worst_segment['end_time'].strftime('%H:%M')}")
-        print(f"   Avg Pressure: {worst_segment['avg_pressure']:+.3f}")
+        print(f"   Avg Pressure Delta: {worst_segment['avg_delta']:+.5f}")
         
         # Check for divergences
-        print(f"\n⚠️  DIVERGENCES (Pressure vs Price):")
+        print(f"\n⚠️  DIVERGENCES (Delta vs Price):")
         divergences = []
         for seg in segments:
-            if seg['state'] == 'bullish' and seg['price_move'] < 0:
-                divergences.append(f"   ⚠️  Bullish pressure but price DOWN {seg['price_move']:+.2f} ({seg['start_time'].strftime('%H:%M')})")
-            elif seg['state'] == 'bearish' and seg['price_move'] > 0:
-                divergences.append(f"   ⚠️  Bearish pressure but price UP {seg['price_move']:+.2f} ({seg['start_time'].strftime('%H:%M')})")
+            if seg['delta_state'] == 'strengthening' and seg['price_move'] < 0:
+                divergences.append(f"   ⚠️  Pressure STRENGTHENING but price DOWN {seg['price_move']:+.2f} ({seg['start_time'].strftime('%H:%M')})")
+            elif seg['delta_state'] == 'weakening' and seg['price_move'] > 0:
+                divergences.append(f"   ⚠️  Pressure WEAKENING but price UP {seg['price_move']:+.2f} ({seg['start_time'].strftime('%H:%M')})")
         
         if divergences:
             for div in divergences:
                 print(div)
         else:
-            print("   None detected - Pressure and price are aligned! ✅")
+            print("   None detected - Pressure delta and price are perfectly aligned! ✅")
     
     print("\n" + "="*80)
 
