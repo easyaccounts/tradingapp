@@ -175,6 +175,19 @@ def analyze_market_modes(signals):
     return modes
 
 
+def get_state_from_pressure(pressure_60s):
+    """Determine market state based on pressure value"""
+    if pressure_60s is None:
+        return 'neutral'
+    p = float(pressure_60s)
+    if p > 0.3:
+        return 'bullish'
+    elif p < -0.3:
+        return 'bearish'
+    else:
+        return 'neutral'
+
+
 def analyze_pressure_shifts(signals):
     """Track significant pressure changes"""
     shifts = []
@@ -183,8 +196,8 @@ def analyze_pressure_shifts(signals):
     for record in signals:
         time = record['time'].astimezone(IST)
         price = float(record['current_price'])
-        state = record['market_state']
         pressure = record['pressure_60s']
+        state = get_state_from_pressure(pressure)
         
         if state != prev_state and prev_state is not None:
             shifts.append({
@@ -257,7 +270,7 @@ def print_report(signals):
         p30 = float(record['pressure_30s']) if record['pressure_30s'] else 0
         p60 = float(record['pressure_60s']) if record['pressure_60s'] else 0
         p120 = float(record['pressure_120s']) if record['pressure_120s'] else 0
-        state = record['market_state']
+        state = get_state_from_pressure(p60)
         
         p30_str = f"{p30:+.3f}"
         p60_str = f"{p60:+.3f}"
@@ -277,9 +290,10 @@ def print_report(signals):
         max_pressure = max(pressure_60s_values)
         min_pressure = min(pressure_60s_values)
         
-        bullish_count = sum(1 for s in signals if s['market_state'] == 'bullish')
-        bearish_count = sum(1 for s in signals if s['market_state'] == 'bearish')
-        neutral_count = sum(1 for s in signals if s['market_state'] == 'neutral')
+        # Calculate state distribution based on pressure
+        bullish_count = sum(1 for p in pressure_60s_values if p > 0.3)
+        bearish_count = sum(1 for p in pressure_60s_values if p < -0.3)
+        neutral_count = len(pressure_60s_values) - bullish_count - bearish_count
         
         print(f"\nPressure (60s window):")
         print(f"  Average: {avg_pressure:+.3f}")
@@ -287,10 +301,10 @@ def print_report(signals):
         print(f"  Min (Most Bearish): {min_pressure:+.3f}")
         print(f"  Range: {max_pressure - min_pressure:.3f}")
         
-        print(f"\nMarket State Distribution:")
-        print(f"  🟢 Bullish: {bullish_count} samples ({100*bullish_count/len(signals):.1f}%)")
-        print(f"  🔴 Bearish: {bearish_count} samples ({100*bearish_count/len(signals):.1f}%)")
-        print(f"  ⚪ Neutral: {neutral_count} samples ({100*neutral_count/len(signals):.1f}%)")
+        print(f"\nMarket State Distribution (calculated from pressure):")
+        print(f"  🟢 Bullish (pressure > 0.3): {bullish_count} samples ({100*bullish_count/len(pressure_60s_values):.1f}%)")
+        print(f"  🔴 Bearish (pressure < -0.3): {bearish_count} samples ({100*bearish_count/len(pressure_60s_values):.1f}%)")
+        print(f"  ⚪ Neutral (-0.3 to 0.3): {neutral_count} samples ({100*neutral_count/len(pressure_60s_values):.1f}%)")
         
         # Determine overall market bias
         if bullish_count > bearish_count:
