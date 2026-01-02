@@ -125,49 +125,58 @@ def analyze_options_positioning(expiry, cutoff_time=None):
         
         print(f"Found {len(call_tokens)} call strikes and {len(put_tokens)} put strikes\n")
         
-        # Check if any tick data exists for these tokens today
-        check_query = """
-        SELECT COUNT(*) as count
-        FROM ticks
-        WHERE time >= DATE_TRUNC('day', %s AT TIME ZONE 'Asia/Kolkata')
-        AND time <= %s
-        AND (instrument_token = ANY(%s) OR instrument_token = ANY(%s))
-        """
-        
+        # Build token lists
         call_token_list = [t[0] for t in call_tokens.values()]
         put_token_list = [t[0] for t in put_tokens.values()]
         
-        cursor.execute(check_query, (cutoff_time, cutoff_time, call_token_list, put_token_list))
+        print(f"Call tokens: {call_token_list[:5]}... (first 5 of {len(call_token_list)})")
+        print(f"Put tokens: {put_token_list[:5]}... (first 5 of {len(put_token_list)})\n")
+        
+        # Check if any tick data exists for these specific tokens today
+        check_query = """
+        SELECT COUNT(*) as count, COUNT(DISTINCT instrument_token) as distinct_tokens
+        FROM ticks
+        WHERE time >= DATE_TRUNC('day', %s AT TIME ZONE 'Asia/Kolkata')
+        AND time <= %s
+        AND instrument_token = ANY(%s)
+        """
+        
+        # Combine all tokens
+        all_tokens = call_token_list + put_token_list
+        
+        cursor.execute(check_query, (cutoff_time, cutoff_time, all_tokens))
         data_check = cursor.fetchone()
         
         if not data_check or data_check['count'] == 0:
-            print("⚠️  No tick data found for NIFTY options TODAY")
+            print("⚠️  No tick data found for these option tokens TODAY")
             print("   Market may not be open yet or data collection hasn't started")
             print(f"   Current time: {cutoff_time.strftime('%Y-%m-%d %H:%M:%S IST')}\n")
             cursor.close()
             conn.close()
             return
+        else:
+            print(f"✓ Found {data_check['count']} tick records for {data_check['distinct_tokens']} distinct tokens\n")
         
-        print(f"✓ Found {data_check['count']} tick records for today\n")
-        
-        # Analyze each option type
-        print(f"{'='*100}")
-        print("🔵 CALLS ANALYSIS (CE)")
-        print(f"{'='*100}\n")
-        
-        analyze_option_type(conn, 'CE', call_tokens, cutoff_time)
-        
-        print(f"\n{'='*100}")
-        print("🔴 PUTS ANALYSIS (PE)")
-        print(f"{'='*100}\n")
-        
-        analyze_option_type(conn, 'PE', put_tokens, cutoff_time)
-        
-        print(f"\n{'='*100}")
-        print("📈 COMPARATIVE ANALYSIS")
-        print(f"{'='*100}\n")
-        
-        compare_call_put_positioning(conn, call_tokens, put_tokens, cutoff_time)
+        # Only proceed with analysis if we have data
+        if data_check and data_check['count'] > 0:
+            # Analyze each option type
+            print(f"{'='*100}")
+            print("🔵 CALLS ANALYSIS (CE)")
+            print(f"{'='*100}\n")
+            
+            analyze_option_type(conn, 'CE', call_tokens, cutoff_time)
+            
+            print(f"\n{'='*100}")
+            print("🔴 PUTS ANALYSIS (PE)")
+            print(f"{'='*100}\n")
+            
+            analyze_option_type(conn, 'PE', put_tokens, cutoff_time)
+            
+            print(f"\n{'='*100}")
+            print("📈 COMPARATIVE ANALYSIS")
+            print(f"{'='*100}\n")
+            
+            compare_call_put_positioning(conn, call_tokens, put_tokens, cutoff_time)
         
     finally:
         cursor.close()
