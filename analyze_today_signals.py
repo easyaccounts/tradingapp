@@ -127,6 +127,83 @@ def find_high_qty_levels(signals):
     return high_qty_levels
 
 
+def analyze_level_formation(signals, high_qty_levels):
+    """Analyze each level at its formation time and intent"""
+    signal_list = list(signals)
+    level_analysis = []
+    
+    for level_key, level_info in high_qty_levels.items():
+        level_price = level_info['price']
+        side = level_info['side']
+        
+        # Find when this level first appeared in the signals
+        first_appearance_idx = None
+        for i, sig in enumerate(signal_list):
+            levels = sig['key_levels'] if sig['key_levels'] else []
+            for lvl in levels:
+                if abs(lvl['price'] - level_price) < 0.1:  # Same level
+                    first_appearance_idx = i
+                    break
+            if first_appearance_idx is not None:
+                break
+        
+        if first_appearance_idx is None:
+            continue
+        
+        # Get price at formation
+        formation_signal = signal_list[first_appearance_idx]
+        formation_time = formation_signal['time'].astimezone(IST)
+        formation_price = float(formation_signal['current_price'])
+        
+        # Calculate distance and type
+        distance = level_price - formation_price
+        
+        if abs(distance) <= 5:
+            level_type = "AT MARKET"
+            aggression = "🔥 AGGRESSIVE"
+        elif distance < 0:
+            level_type = "BELOW MARKET"
+            aggression = "🛡️ SUPPORT"
+        else:
+            level_type = "ABOVE MARKET"
+            aggression = "🛡️ RESISTANCE"
+        
+        # Check next 12 signals for confirmation
+        future_prices = []
+        for j in range(first_appearance_idx + 1, min(first_appearance_idx + 13, len(signal_list))):
+            future_prices.append(float(signal_list[j]['current_price']))
+        
+        if not future_prices:
+            continue
+        
+        final_price = future_prices[-1]
+        price_move = final_price - formation_price
+        
+        # Determine if formation intent was confirmed
+        if side == 'support':
+            # Support at formation time = buyers expecting dip
+            intent_confirmed = price_move > 0  # Price went up = dip didn't happen, but bullish
+        else:  # resistance
+            # Resistance at formation time = sellers expecting continuation
+            intent_confirmed = price_move > 0  # Price went up = resistance broken, bullish
+        
+        level_analysis.append({
+            'price': level_price,
+            'side': side,
+            'peak_qty': level_info['peak_qty'],
+            'formation_time': formation_time,
+            'formation_price': formation_price,
+            'distance_at_formation': distance,
+            'level_type': level_type,
+            'aggression': aggression,
+            'price_move_after_2min': price_move,
+            'final_price_after_2min': final_price,
+            'intent_confirmed': intent_confirmed
+        })
+    
+    return level_analysis
+
+
 def validate_level_holds(signals, high_qty_levels):
     """Analyze if high-qty level breaks result in momentum continuation"""
     signal_list = list(signals)
@@ -462,6 +539,48 @@ def print_report(signals):
         print(f"\nDebug - High Qty Levels Found:")
         for (price, side), level_info in list(high_qty_levels.items())[:3]:
             print(f"  ₹{price} ({side}): peak_qty={level_info['peak_qty']}, avg_qty={level_info['avg_qty']}")
+        
+        print(f"\n\n" + "="*110)
+        print("📋 LEVEL FORMATION ANALYSIS - When Did Each Level Appear & What Was The Intent?")
+        print("="*110)
+        
+        # Analyze formation
+        formation_data = analyze_level_formation(signals, high_qty_levels)
+        
+        if formation_data:
+            # Sort by formation time
+            formation_data.sort(key=lambda x: x['formation_time'])
+            
+            print(f"\n{'Formation Time':<16} {'Level':<10} {'Type':<18} {'Distance':<12} {'2Min Move':<12} {'Intent':<12}")
+            print("-"*110)
+            
+            for level in formation_data:
+                intent_icon = "✅" if level['intent_confirmed'] else "❌"
+                move_icon = "📈" if level['price_move_after_2min'] > 0 else "📉"
+                
+                print(f"{level['formation_time'].strftime('%H:%M:%S'):<16} ₹{level['price']:<9.2f} {level['level_type']:<18} {level['distance_at_formation']:+7.2f}₹  {move_icon} {level['price_move_after_2min']:+8.2f}₹  {intent_icon} {level['aggression']:<11}")
+            
+            # Summary by aggression type
+            print(f"\n📊 Formation Intent Analysis:")
+            aggressive = [l for l in formation_data if abs(l['distance_at_formation']) <= 5]
+            defensive = [l for l in formation_data if abs(l['distance_at_formation']) > 5]
+            
+            if aggressive:
+                print(f"\n🔥 AGGRESSIVE BID/ASK (placed AT current price):")
+                for level in aggressive:
+                    status = "✅ Worked" if level['intent_confirmed'] else "❌ Failed"
+                    print(f"   ₹{level['price']:.2f} ({level['side'].upper()}) - {level['peak_qty']:,} qty - {status} (moved {level['price_move_after_2min']:+.2f}₹)")
+            
+            if defensive:
+                print(f"\n🛡️ DEFENSIVE SUPPORT/RESISTANCE (placed away from price):")
+                for level in defensive:
+                    status = "✅ Worked" if level['intent_confirmed'] else "❌ Failed"
+                    direction = "BELOW" if level['distance_at_formation'] < 0 else "ABOVE"
+                    print(f"   ₹{level['price']:.2f} ({level['side'].upper()}) - {direction} market by {abs(level['distance_at_formation']):.2f}₹ - {status}")
+        
+        print(f"\n\n" + "="*110)
+        print("⚡ LEVEL MOMENTUM ANALYSIS - What Happened When Levels Were Tested?")
+        print("="*110)
         
         print(f"\nAnalyzing momentum after break...\n")
         
