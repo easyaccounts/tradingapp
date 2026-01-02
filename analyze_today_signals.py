@@ -11,11 +11,15 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from collections import defaultdict
 import pytz
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Database connection
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
-    'port': int(os.getenv('DB_PORT', 6432)),
+    'port': int(os.getenv('DB_PORT', '6432')),
     'database': os.getenv('DB_NAME', 'tradingdb'),
     'user': os.getenv('DB_USER', 'tradinguser'),
     'password': os.getenv('DB_PASSWORD')
