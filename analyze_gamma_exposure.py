@@ -275,9 +275,11 @@ def extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, op
     if market_price <= 0 or time_to_expiry_years <= 0:
         return 0.15
     
-    # MICRO-PREMIUM DETECTION: For premiums < 0.1 (deep OTM), use conservative IV
-    # These options have extremely low liquidity/value and solver struggles with them
-    if market_price < 0.1:
+    # MICRO-PREMIUM DETECTION: For premiums < 0.5 (OTM/deep OTM), use conservative IV
+    # These options have extremely low liquidity and bid-ask artifact premiums
+    # The solver fails to find meaningful IVs for these, so we use default
+    # Threshold 0.5 is ~2-3 times the typical bid-ask spread (0.15-0.20)
+    if market_price < 0.5:
         return 0.15
     
     # OPTIMIZATION: Strike-based cache (IV is strike-specific, not spot-specific)
@@ -349,8 +351,27 @@ def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
     strike_gammas = {}
     iv_levels = defaultdict(list)
     
-    # OPTIMIZATION: Pre-filter zero OI options
-    valid_options = [opt for opt in options_data if int(opt['oi']) > 0]
+    # OPTIMIZATION: Pre-filter zero OI options and stale/unrealistic premiums
+    valid_options = []
+    for opt in options_data:
+        if int(opt['oi']) <= 0:
+            continue
+        
+        # Check intrinsic value - if premium < intrinsic, data is stale
+        strike = float(opt['strike'])
+        premium = float(opt['last_price'])
+        opt_type = opt['instrument_type']
+        
+        if opt_type == 'CE':
+            intrinsic = max(0, spot_price - strike)
+        else:
+            intrinsic = max(0, strike - spot_price)
+        
+        # Skip if premium < 80% of intrinsic (indicates stale/bad data)
+        if premium < intrinsic * 0.8:
+            continue
+        
+        valid_options.append(opt)
     
     print(f"\n[CALC] Processing {len(valid_options)} options with non-zero OI...")
     
