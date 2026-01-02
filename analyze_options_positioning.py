@@ -149,14 +149,6 @@ def analyze_options_positioning(expiry, cutoff_time=None):
             return
         
         print(f"✓ Found {data_check['count']} tick records for today\n")
-        data_check = cursor.fetchone()
-        
-        if not data_check or data_check['count'] == 0:
-            print("⚠️  No tick data found for NIFTY options today")
-            print("   Market may not be open yet or data collection hasn't started\n")
-            cursor.close()
-            conn.close()
-            return
         
         # Analyze each option type
         print(f"{'='*100}")
