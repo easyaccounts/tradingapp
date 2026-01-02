@@ -48,10 +48,13 @@ def identify_key_levels(current_snapshot: dict, level_tracker, current_price: fl
                 'strength': orders / avg_orders
             }
     
+    # Mark levels not in current snapshot as inactive
+    level_tracker.mark_absent_levels_inactive(current_big_levels, timestamp)
+    
     # Update tracked levels
     for price, data in current_big_levels.items():
         if level_tracker.get_level(price):
-            # Existing level - update
+            # Existing level - update (will mark as active)
             level_tracker.update_level(price, data['orders'], data['quantity'], current_price, timestamp)
         else:
             # New level - start tracking
@@ -60,7 +63,7 @@ def identify_key_levels(current_snapshot: dict, level_tracker, current_price: fl
     # Clean up stale levels
     level_tracker.cleanup_stale_levels(current_price, timestamp)
     
-    # Return only verified levels (existed for 5+ seconds)
+    # Return only verified levels (existed for 5+ seconds AND currently active)
     verified_levels = [
         {
             'price': lvl.price,
@@ -74,10 +77,11 @@ def identify_key_levels(current_snapshot: dict, level_tracker, current_price: fl
             'tests': lvl.tests,
             'status': lvl.status,
             'distance': abs(lvl.price - current_price),
-            'first_seen': lvl.first_seen.strftime('%H:%M:%S') if lvl.first_seen else 'N/A'
+            'first_seen': lvl.first_seen.strftime('%H:%M:%S') if lvl.first_seen else 'N/A',
+            'active': lvl.active
         }
         for lvl in level_tracker.get_all_levels()
-        if lvl.age_seconds > 5  # At least 5 seconds old
+        if lvl.age_seconds > 5 and lvl.active  # At least 5 seconds old AND currently in depth
     ]
     
     # Sort by strength, return top 5
