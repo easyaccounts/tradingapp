@@ -121,6 +121,24 @@ def analyze_options_positioning(expiry, cutoff_time=None):
         
         print(f"Found {len(call_data)} call strikes and {len(put_data)} put strikes\n")
         
+        # Check if any tick data exists for these options today
+        check_query = """
+        SELECT COUNT(*) as count
+        FROM ticks
+        WHERE trading_symbol LIKE %s
+        AND time >= DATE_TRUNC('day', %s AT TIME ZONE 'Asia/Kolkata')
+        LIMIT 1
+        """
+        cursor.execute(check_query, ('NIFTY%', cutoff_time))
+        data_check = cursor.fetchone()
+        
+        if not data_check or data_check['count'] == 0:
+            print("⚠️  No tick data found for NIFTY options today")
+            print("   Market may not be open yet or data collection hasn't started\n")
+            cursor.close()
+            conn.close()
+            return
+        
         # Analyze each option type
         print(f"{'='*100}")
         print("🔵 CALLS ANALYSIS (CE)")
