@@ -104,9 +104,9 @@ def find_high_qty_levels(signals):
         levels = record['key_levels'] if record['key_levels'] else []
         
         for level in levels:
-            # Check if peak_qty or avg_qty exceeds 15k
-            peak_qty = level.get('peak_qty', 0)
-            avg_qty = level.get('avg_qty', 0)
+            # Check if peak_quantity or avg_quantity exceeds 15k
+            peak_qty = level.get('peak_quantity', 0)
+            avg_qty = level.get('avg_quantity', 0)
             
             if peak_qty > 15000 or avg_qty > 15000:
                 level_key = (round(level['price'], 2), level['side'])
@@ -117,11 +117,11 @@ def find_high_qty_levels(signals):
                         'side': level['side'],
                         'peak_qty': peak_qty,
                         'avg_qty': avg_qty,
-                        'tests': level['tests'],
-                        'strength': level['strength'],
+                        'tests': level.get('tests', 0),
+                        'strength': level.get('strength', 0),
                         'first_seen': time,
-                        'distance': level['distance'],
-                        'age_seconds': level['age_seconds']
+                        'distance': level.get('distance', 0),
+                        'age_seconds': level.get('age_seconds', 0)
                     }
     
     return high_qty_levels
@@ -435,8 +435,22 @@ def print_report(signals):
     print(f"💰 Price: ₹{start_price:.2f} → ₹{end_price:.2f} ({end_price - start_price:+.2f})")
     print(f"📈 Total signals: {len(signals)}\n")
     
-    # FIND HIGH-QTY LEVELS
+    # DEBUG: Show sample level structure
     print("="*90)
+    print("🔍 DEBUG: Sample Level Structure")
+    print("="*90)
+    
+    for record in signals[:3]:
+        levels = record['key_levels'] if record['key_levels'] else []
+        if levels:
+            time = record['time'].astimezone(IST)
+            print(f"\nSignal at {time.strftime('%H:%M:%S')}:")
+            print(f"  Available keys in level: {list(levels[0].keys())}")
+            print(f"  Sample level: {levels[0]}")
+            break
+    
+    # FIND HIGH-QTY LEVELS
+    print("\n" + "="*90)
     print("🎯 KEY LEVELS WITH PEAK/AVG QTY > 15k")
     print("="*90)
     
