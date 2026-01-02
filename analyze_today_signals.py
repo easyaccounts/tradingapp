@@ -134,14 +134,14 @@ def validate_level_holds(signals, high_qty_levels):
     
     for level_key, level_info in high_qty_levels.items():
         level_price = level_info['price']
-        side = level_info['side']  # 'bid' or 'ask'
+        side = level_info['side']  # 'support' or 'resistance'
         
         # Find first time price tests this level
         first_test_idx = None
         for i, sig in enumerate(signal_list):
             current_price = float(sig['current_price'])
             
-            if side == 'bid':  # Support level - price should not go below
+            if side == 'support':  # Support level - price should not go below
                 if current_price <= level_price:
                     first_test_idx = i
                     break
@@ -165,7 +165,7 @@ def validate_level_holds(signals, high_qty_levels):
         max_price_after = max(future_prices) if future_prices else test_price
         
         # Check if level held
-        if side == 'bid':  # Support - check if price bounced up
+        if side == 'support':  # Support - check if price bounced up
             min_after_test = min(future_prices[1:]) if len(future_prices) > 1 else test_price
             max_penetration = level_price - min_after_test  # How far below it went
             level_held = min_after_test >= level_price
@@ -456,20 +456,20 @@ def print_report(signals):
         validated_levels = validate_level_holds(signals, high_qty_levels)
         
         if validated_levels:
-            # Sort by side (bid first) then by price descending
-            bid_levels = sorted([l for l in validated_levels if l['side'] == 'bid'], 
-                               key=lambda x: x['price'], reverse=True)
-            ask_levels = sorted([l for l in validated_levels if l['side'] == 'ask'], 
-                               key=lambda x: x['price'])
+            # Sort by side (support first) then by price descending
+            support_levels = sorted([l for l in validated_levels if l['side'] == 'support'], 
+                                   key=lambda x: x['price'], reverse=True)
+            resistance_levels = sorted([l for l in validated_levels if l['side'] == 'resistance'], 
+                                      key=lambda x: x['price'])
             
-            print(f"{'Level':<12} {'Side':<8} {'Peak Qty':<12} {'Avg Qty':<12} {'Tests':<8} {'Held?':<12} {'Penetration':<12}")
+            print(f"{'Level':<12} {'Side':<12} {'Peak Qty':<12} {'Avg Qty':<12} {'Tests':<8} {'Held?':<12} {'Penetration':<12}")
             print("-"*95)
             
-            for level in bid_levels + ask_levels:
-                side_text = "BID (S)" if level['side'] == 'bid' else "ASK (R)"
+            for level in support_levels + resistance_levels:
+                side_text = "SUPPORT" if level['side'] == 'support' else "RESISTANCE"
                 held_text = "✅ YES" if level['level_held'] else f"❌ {level['penetration_points']:.1f}₹"
                 
-                print(f"₹{level['price']:<11.2f} {side_text:<8} {level['peak_qty']:<11,.0f} {level['avg_qty']:<11,.0f} {level['tests']:<7} {held_text:<12} {level['penetration_points']:<11.2f}")
+                print(f"₹{level['price']:<11.2f} {side_text:<12} {level['peak_qty']:<11,.0f} {level['avg_qty']:<11,.0f} {level['tests']:<7} {held_text:<12} {level['penetration_points']:<11.2f}")
             
             # Summary statistics
             print("\n📊 Level Hold Statistics:")
