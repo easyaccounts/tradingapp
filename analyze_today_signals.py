@@ -175,7 +175,54 @@ def analyze_market_modes(signals):
     return modes
 
 
-def get_state_from_pressure(pressure_60s):
+def analyze_pressure_price_correlation(signals):
+    """Analyze how price moved with pressure changes"""
+    pressure_segments = []
+    current_segment = None
+    
+    for i, record in enumerate(signals):
+        time = record['time'].astimezone(IST)
+        price = float(record['current_price'])
+        pressure = float(record['pressure_60s']) if record['pressure_60s'] else 0
+        state = get_state_from_pressure(pressure)
+        
+        # Start new segment or continue
+        if current_segment is None or state != current_segment['state']:
+            if current_segment is not None:
+                pressure_segments.append(current_segment)
+            
+            current_segment = {
+                'state': state,
+                'start_time': time,
+                'start_price': price,
+                'start_pressure': pressure,
+                'prices': [price],
+                'pressures': [pressure],
+                'times': [time]
+            }
+        else:
+            current_segment['prices'].append(price)
+            current_segment['pressures'].append(pressure)
+            current_segment['times'].append(time)
+    
+    # Add final segment
+    if current_segment is not None:
+        pressure_segments.append(current_segment)
+    
+    # Calculate metrics for each segment
+    for segment in pressure_segments:
+        segment['end_time'] = segment['times'][-1]
+        segment['end_price'] = segment['prices'][-1]
+        segment['end_pressure'] = segment['pressures'][-1]
+        segment['duration_sec'] = (segment['end_time'] - segment['start_time']).total_seconds()
+        segment['price_move'] = segment['end_price'] - segment['start_price']
+        segment['price_change_pct'] = (segment['price_move'] / segment['start_price']) * 100
+        segment['avg_pressure'] = sum(segment['pressures']) / len(segment['pressures'])
+        segment['price_high'] = max(segment['prices'])
+        segment['price_low'] = min(segment['prices'])
+        segment['price_range'] = segment['price_high'] - segment['price_low']
+    
+    return pressure_segments
     """Determine market state based on pressure value"""
     if pressure_60s is None:
         return 'neutral'
@@ -318,6 +365,89 @@ def print_report(signals):
             icon = "⚪"
         
         print(f"\n{icon} Overall Bias: {bias}")
+    
+    print("\n" + "="*80)
+    
+    # NEW: Pressure vs Price correlation analysis
+    print("\n" + "="*80)
+    print("💹 PRESSURE vs PRICE MOVEMENT")
+    print("="*80)
+    
+    segments = analyze_pressure_price_correlation(signals)
+    
+    print(f"\nDetected {len(segments)} pressure periods:\n")
+    print(f"{'#':<3} {'State':<10} {'Duration':<12} {'Price Start':<14} {'Price End':<14} {'Price Move':<12} {'Avg Pressure':<14}")
+    print("-"*80)
+    
+    for i, seg in enumerate(segments, 1):
+        icon = "🟢" if seg['state'] == 'bullish' else "🔴" if seg['state'] == 'bearish' else "⚪"
+        duration_min = seg['duration_sec'] / 60
+        move_str = f"{seg['price_move']:+.2f}"
+        pct_str = f"({seg['price_change_pct']:+.2f}%)"
+        
+        print(f"{i:<3} {icon} {seg['state']:<7} {duration_min:>6.1f}m {seg['start_price']:>12.2f} → {seg['end_price']:>12.2f} {move_str:>10} {pct_str:<11} {seg['avg_pressure']:+.3f}")
+    
+    # Insights
+    print("\n" + "="*80)
+    print("🔍 PRESSURE-PRICE INSIGHTS")
+    print("="*80)
+    
+    if segments:
+        bullish_segments = [s for s in segments if s['state'] == 'bullish']
+        bearish_segments = [s for s in segments if s['state'] == 'bearish']
+        neutral_segments = [s for s in segments if s['state'] == 'neutral']
+        
+        if bullish_segments:
+            avg_bullish_move = sum(s['price_move'] for s in bullish_segments) / len(bullish_segments)
+            total_bullish_move = sum(s['price_move'] for s in bullish_segments)
+            bullish_accuracy = sum(1 for s in bullish_segments if s['price_move'] > 0) / len(bullish_segments)
+            print(f"\n🟢 BULLISH Periods ({len(bullish_segments)} times):")
+            print(f"   Average price move: {avg_bullish_move:+.2f}")
+            print(f"   Total price move: {total_bullish_move:+.2f}")
+            print(f"   Accuracy (price up): {bullish_accuracy*100:.0f}%")
+        
+        if bearish_segments:
+            avg_bearish_move = sum(s['price_move'] for s in bearish_segments) / len(bearish_segments)
+            total_bearish_move = sum(s['price_move'] for s in bearish_segments)
+            bearish_accuracy = sum(1 for s in bearish_segments if s['price_move'] < 0) / len(bearish_segments)
+            print(f"\n🔴 BEARISH Periods ({len(bearish_segments)} times):")
+            print(f"   Average price move: {avg_bearish_move:+.2f}")
+            print(f"   Total price move: {total_bearish_move:+.2f}")
+            print(f"   Accuracy (price down): {bearish_accuracy*100:.0f}%")
+        
+        if neutral_segments:
+            avg_neutral_range = sum(s['price_range'] for s in neutral_segments) / len(neutral_segments)
+            print(f"\n⚪ NEUTRAL Periods ({len(neutral_segments)} times):")
+            print(f"   Average price range: {avg_neutral_range:.2f}")
+        
+        # Find best and worst pressure signal
+        best_segment = max(segments, key=lambda x: x['price_move'])
+        worst_segment = min(segments, key=lambda x: x['price_move'])
+        
+        print(f"\n✅ Best Signal:")
+        print(f"   {best_segment['state'].upper()} period: +₹{best_segment['price_move']:.2f} ({best_segment['price_change_pct']:+.2f}%)")
+        print(f"   Time: {best_segment['start_time'].strftime('%H:%M')} - {best_segment['end_time'].strftime('%H:%M')}")
+        print(f"   Avg Pressure: {best_segment['avg_pressure']:+.3f}")
+        
+        print(f"\n❌ Worst Signal:")
+        print(f"   {worst_segment['state'].upper()} period: {worst_segment['price_move']:+.2f} ({worst_segment['price_change_pct']:+.2f}%)")
+        print(f"   Time: {worst_segment['start_time'].strftime('%H:%M')} - {worst_segment['end_time'].strftime('%H:%M')}")
+        print(f"   Avg Pressure: {worst_segment['avg_pressure']:+.3f}")
+        
+        # Check for divergences
+        print(f"\n⚠️  DIVERGENCES (Pressure vs Price):")
+        divergences = []
+        for seg in segments:
+            if seg['state'] == 'bullish' and seg['price_move'] < 0:
+                divergences.append(f"   ⚠️  Bullish pressure but price DOWN {seg['price_move']:+.2f} ({seg['start_time'].strftime('%H:%M')})")
+            elif seg['state'] == 'bearish' and seg['price_move'] > 0:
+                divergences.append(f"   ⚠️  Bearish pressure but price UP {seg['price_move']:+.2f} ({seg['start_time'].strftime('%H:%M')})")
+        
+        if divergences:
+            for div in divergences:
+                print(div)
+        else:
+            print("   None detected - Pressure and price are aligned! ✅")
     
     print("\n" + "="*80)
 
