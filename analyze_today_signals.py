@@ -136,19 +136,30 @@ def validate_level_holds(signals, high_qty_levels):
         level_price = level_info['price']
         side = level_info['side']  # 'support' or 'resistance'
         
-        # Find first time price tests this level
+        # Find when price actually TESTS the level in the expected direction
+        # For support: price must go DOWN to or below the level
+        # For resistance: price must go UP to or above the level
         first_test_idx = None
+        
         for i, sig in enumerate(signal_list):
             current_price = float(sig['current_price'])
             
-            if side == 'support':  # Support level - price going below
-                if current_price <= level_price:
-                    first_test_idx = i
-                    break
-            else:  # Resistance level - price going above
-                if current_price >= level_price:
-                    first_test_idx = i
-                    break
+            if side == 'support':
+                # Support must be tested by price going DOWN
+                # Only count if this is part of a downward move (price was higher before)
+                if i > 0 and current_price <= level_price:
+                    prev_price = float(signal_list[i-1]['current_price'])
+                    if prev_price > level_price:  # Coming from above
+                        first_test_idx = i
+                        break
+            else:  # resistance
+                # Resistance must be tested by price going UP  
+                # Only count if this is part of an upward move (price was lower before)
+                if i > 0 and current_price >= level_price:
+                    prev_price = float(signal_list[i-1]['current_price'])
+                    if prev_price < level_price:  # Coming from below
+                        first_test_idx = i
+                        break
         
         if first_test_idx is None or first_test_idx >= len(signal_list) - 12:
             continue
