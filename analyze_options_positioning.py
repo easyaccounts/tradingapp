@@ -191,7 +191,8 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
     
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Get market open time
+    # Get the start of the day and market open time
+    market_start = cutoff_time.replace(hour=0, minute=0, second=0, microsecond=0)
     market_open = cutoff_time.replace(hour=9, minute=15, second=0, microsecond=0)
     
     total_oi_open = 0
@@ -207,7 +208,7 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
     for strike in sorted(tokens_dict.keys()):
         token, symbol = tokens_dict[strike]
         
-        # Get opening tick (first tick after market open at 09:15)
+        # Get opening tick - first tick of the day (not necessarily at 09:15)
         open_query = """
         SELECT last_price, oi
         FROM ticks
@@ -218,7 +219,7 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
         LIMIT 1
         """
         
-        cursor.execute(open_query, (token, market_open, market_open + timedelta(minutes=5)))
+        cursor.execute(open_query, (token, market_start, cutoff_time))
         open_data = cursor.fetchone()
         
         if not open_data:
