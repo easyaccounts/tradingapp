@@ -84,80 +84,100 @@ def identify_key_levels(current_snapshot: dict, level_tracker, current_price: fl
     return verified_levels[:5]
 
 
-def detect_absorptions(level_tracker, snapshot_buffer: deque, current_price: float) -> List[Dict]:
+def detect_absorptions(key_levels: List[Dict], current_snapshot: dict) -> List[Dict]:
     """
-    Metric 2: Detect when big levels are being broken through
-    Returns list of active absorptions
-    """
-    if len(snapshot_buffer) < 180:  # Need at least 60 seconds of data
-        return []
+    Metric 2: Detect when key levels are being absorbed/broken through
+    Monitors key levels (both orders + qty thresholds met) for absorption
+    with natural boundary conditions instead of fixed time windows.
     
+    Returns list of confirmed absorptions
+    """
     absorptions = []
     
-    # Get snapshots from 30-60 seconds ago
-    snapshots_ago = list(snapshot_buffer)[-180:-150] if len(snapshot_buffer) >= 180 else []
-    current_snapshots = list(snapshot_buffer)[-15:]  # Last 3 seconds
+    if not key_levels or not current_snapshot:
+        return absorptions
     
-    if not snapshots_ago or not current_snapshots:
-        return []
-
-    # Baseline: average resting orders across the older window
-    all_orders_ago = [
-        lvl['orders']
-        for snap in snapshots_ago
-        for lvl in snap.get('bids', []) + snap.get('asks', [])
-        if lvl['orders'] > 0
-    ]
-    avg_orders_ago = statistics.mean(all_orders_ago) if all_orders_ago else 0
-    if avg_orders_ago == 0:
-        return []
-    big_level_threshold = avg_orders_ago * 3  # match key-level style (3x average)
+    current_price = float(current_snapshot.get('last_price', 0))
+    best_bid = float(current_snapshot.get('bids', [{}])[0].get('price', 0)) if current_snapshot.get('bids') else 0
+    best_ask = float(current_snapshot.get('asks', [{}])[0].get('price', 0)) if current_snapshot.get('asks') else 0
+    timestamp = datetime.fromisoformat(current_snapshot['timestamp'])
     
-    for level in level_tracker.get_all_levels():
-        price = level.price
+    for level in key_levels:
+        price = level['price']
+        side = level['side']
+        orders_at_level = level['orders']
+        peak_orders = level['peak_quantity']
         
-        # Only check significant levels (3x average)
-        if level.peak_orders < big_level_threshold:
+        # Initialize absorption tracking for this key level (first time only)
+        if '_absorption_tracking' not in level:
+            level['_absorption_tracking'] = {
+                'started_at': timestamp,
+                'snapshot_count': 0,
+                'status': 'monitoring'  # monitoring → done
+            }
+        
+        tracking = level['_absorption_tracking']
+        
+        # Skip if already processed
+        if tracking['status'] == 'done':
             continue
         
-        # Get average orders at this price in both windows
-        orders_before = get_avg_orders_at_price(snapshots_ago, price)
-        orders_now = get_avg_orders_at_price(current_snapshots, price)
+        tracking['snapshot_count'] += 1
+        time_elapsed = (timestamp - tracking['started_at']).total_seconds()
+        distance_from_price = abs(current_price - price)
         
-        if orders_before < big_level_threshold:  # Wasn't big enough back then
+        # === BOUNDARY CONDITION 1: Price moved >40 points away ===
+        # Level no longer in play for absorption
+        if distance_from_price > 40:
+            tracking['status'] = 'done'
             continue
         
-        # Calculate reduction
-        reduction_pct = (orders_before - orders_now) / orders_before
+        # === BOUNDARY CONDITION 2: Price escaped (best bid/ask more aggressive than key level) ===
+        # Means price just blasted through without absorbing orders
+        price_escaped = False
+        if side == 'support' and best_bid > price:
+            # Best bid jumped above support = price escaped upward
+            price_escaped = True
+        elif side == 'resistance' and best_ask < price:
+            # Best ask jumped below resistance = price escaped downward
+            price_escaped = True
         
-        # Absorption conditions
-        if reduction_pct > 0.6:  # 60%+ reduction
-            price_distance = abs(current_price - price)
-            
-            # Price must be near or through the level
-            if price_distance < 20:
-                # Check if price broke through
-                price_broke_through = (
-                    (level.side == 'resistance' and current_price > price) or
-                    (level.side == 'support' and current_price < price)
-                )
-                
-                # Verify consistent decline (not flickering)
-                if level.is_consistent_decline(window=min(30, len(level.order_history))):
-                    absorptions.append({
-                        'price': price,
-                        'side': level.side,
-                        'orders_before': int(orders_before),
-                        'orders_now': int(orders_now),
-                        'reduction_pct': int(reduction_pct * 100),
-                        'started_at': level.first_seen.isoformat(),
-                        'status': 'breaking' if price_distance < 10 else 'weakening',
-                        'price_broke': price_broke_through,
-                        'current_price': current_price
-                    })
-                    
-                    # Update level status
-                    level.status = 'breaking'
+        if price_escaped:
+            tracking['status'] = 'done'
+            continue
+        
+        # === BOUNDARY CONDITION 3: Absorption confirmed ===
+        # Orders at level dropped 60%+ AND price broke through
+        orders_reduction = (peak_orders - orders_at_level) / peak_orders if peak_orders > 0 else 0
+        
+        price_broke_through = (
+            (side == 'support' and current_price < price) or
+            (side == 'resistance' and current_price > price)
+        )
+        
+        if orders_reduction >= 0.60 and price_broke_through:
+            absorptions.append({
+                'price': price,
+                'side': side,
+                'orders_peak': peak_orders,
+                'orders_now': orders_at_level,
+                'reduction_pct': int(orders_reduction * 100),
+                'time_to_absorption': time_elapsed,
+                'started_at': tracking['started_at'].isoformat(),
+                'snapshots_to_absorption': tracking['snapshot_count'],
+                'status': 'absorbed',
+                'price_broke': True,
+                'current_price': current_price,
+                'distance_at_absorption': distance_from_price
+            })
+            tracking['status'] = 'done'
+            continue
+        
+        # === BOUNDARY CONDITION 4: Safety cleanup at 120 seconds ===
+        # If none of above conditions triggered, stop monitoring
+        if time_elapsed > 120:
+            tracking['status'] = 'done'
+            continue
     
     return absorptions
 

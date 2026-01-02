@@ -151,7 +151,7 @@ class SignalGenerator:
         
         # Calculate 3 metrics
         key_levels = identify_key_levels(current_snapshot, self.level_tracker, current_price)
-        absorptions = detect_absorptions(self.level_tracker, self.snapshot_buffer, current_price)
+        absorptions = detect_absorptions(key_levels, current_snapshot)
         pressure = calculate_pressure(self.snapshot_buffer, current_price)
         
         print(f"  Key levels: {len(key_levels)} | Absorptions: {len(absorptions)} | Pressure: {pressure['state']}")
