@@ -172,11 +172,12 @@ def analyze_options_positioning(expiry, cutoff_time=None):
             
             analyze_option_type(conn, 'PE', put_tokens, cutoff_time)
             
-            print(f"\n{'='*100}")
-            print("📈 COMPARATIVE ANALYSIS")
-            print(f"{'='*100}\n")
-            
-            compare_call_put_positioning(conn, call_tokens, put_tokens, cutoff_time)
+            # Skip comparative analysis for now (causes PostgreSQL memory issues with large token sets)
+            # print(f"\n{'='*100}")
+            # print("📈 COMPARATIVE ANALYSIS")
+            # print(f"{'='*100}\n")
+            # 
+            # compare_call_put_positioning(conn, call_tokens, put_tokens, cutoff_time)
         
     finally:
         cursor.close()
