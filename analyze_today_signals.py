@@ -131,7 +131,7 @@ def find_pressure_threshold_crossings(signals):
 
 
 def validate_threshold_signals(signals):
-    """Validate if price actually reverses at threshold crossings"""
+    """Validate if price actually reverses at threshold crossings (2 minutes later)"""
     crossings = find_pressure_threshold_crossings(signals)
     
     if not crossings:
@@ -152,12 +152,12 @@ def validate_threshold_signals(signals):
                 signal_idx = j
                 break
         
-        if signal_idx is None or signal_idx >= len(signal_list) - 10:
+        if signal_idx is None or signal_idx >= len(signal_list) - 12:
             continue
         
-        # Get prices for next 10 signals (~33 seconds forward)
+        # Get prices for next 12 signals (~120 seconds = 2 minutes forward)
         future_prices = [float(signal_list[signal_idx + k]['current_price']) 
-                        for k in range(1, min(11, len(signal_list) - signal_idx))]
+                        for k in range(1, min(13, len(signal_list) - signal_idx))]
         
         if not future_prices:
             continue
