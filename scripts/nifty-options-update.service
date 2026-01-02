@@ -7,9 +7,7 @@ Type=oneshot
 User=root
 WorkingDirectory=/opt/tradingapp
 ExecStart=/opt/tradingapp/venv/bin/python /opt/tradingapp/scripts/update_nifty_options.py
-ExecStartPost=/usr/bin/docker-compose -f /opt/tradingapp/docker-compose.yml stop ingestion
-ExecStartPost=/usr/bin/docker-compose -f /opt/tradingapp/docker-compose.yml rm -f ingestion
-ExecStartPost=/usr/bin/docker-compose -f /opt/tradingapp/docker-compose.yml up -d ingestion
+ExecStartPost=/root/.nvm/versions/node/v18.18.0/bin/pm2 restart ingestion
 StandardOutput=append:/var/log/tradingapp/nifty-options-update.log
 StandardError=append:/var/log/tradingapp/nifty-options-update.log
 
