@@ -21,6 +21,10 @@ function loadEnv() {
 
 const envVars = loadEnv();
 
+// PM2 cron uses Node.js's timezone, which may differ from system timezone
+// Force UTC for consistent cron execution by setting TZ in process.env
+process.env.TZ = 'UTC';
+
 module.exports = {
   apps: [
     {
