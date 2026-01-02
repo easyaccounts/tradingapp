@@ -192,8 +192,12 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
     
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Get the start of the day
-    market_start = cutoff_time.replace(hour=9, minute=15, second=0, microsecond=0)
+    # Get the start of the day (in IST, then convert to UTC for DB query)
+    market_start_ist = cutoff_time.replace(hour=9, minute=15, second=0, microsecond=0)
+    
+    # Convert to UTC for database query
+    market_start_utc = market_start_ist.astimezone(pytz.UTC)
+    cutoff_time_utc = cutoff_time.astimezone(pytz.UTC)
     
     # Extract all tokens
     all_tokens = [t[0] for t in tokens_dict.values()]
@@ -214,7 +218,7 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
     ORDER BY interval_start
     """
     
-    cursor.execute(interval_query, (all_tokens, market_start, cutoff_time))
+    cursor.execute(interval_query, (all_tokens, market_start_utc, cutoff_time_utc))
     intervals = cursor.fetchall()
     
     if not intervals:
@@ -229,7 +233,9 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
     prev_premium = None
     
     for row in intervals:
-        interval_time = row['interval_start']
+        # Convert UTC timestamp back to IST for display
+        interval_time_utc = row['interval_start'].replace(tzinfo=pytz.UTC)
+        interval_time_ist = interval_time_utc.astimezone(IST)
         total_oi = row['total_oi'] or 0
         avg_premium = float(row['avg_premium']) if row['avg_premium'] else 0
         
@@ -238,7 +244,7 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
         oi_change_pct = ((oi_change / prev_oi) * 100) if prev_oi and prev_oi > 0 else 0
         premium_change = (avg_premium - prev_premium) if prev_premium is not None else 0
         
-        time_str = interval_time.strftime('%H:%M')
+        time_str = interval_time_ist.strftime('%H:%M')
         print(f"{time_str:<20} {total_oi:<14,} {oi_change:>+13,} ({oi_change_pct:>5.1f}%) {avg_premium:>13.2f}₹ {premium_change:>+13.2f}₹")
         
         prev_oi = total_oi
