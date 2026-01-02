@@ -275,44 +275,10 @@ module.exports = {
       out_file: '/opt/tradingapp/logs/depth-insights-slack-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       merge_logs: true
-    },
-    {
-      name: 'market-start',
-      script: 'market_hours_control.py',
-      args: 'start',
-      interpreter: '/usr/bin/python3',
-      cwd: '/opt/tradingapp',
-      instances: 1,
-      autorestart: false,
-      cron_restart: '30 3 * * 1-5',  // 9:00 AM IST = 03:30 UTC, Mon-Fri
-      watch: false,
-      env: {
-        PATH: '/usr/local/bin:/usr/bin:/bin',
-        TZ: 'UTC'
-      },
-      error_file: '/opt/tradingapp/logs/market-start-error.log',
-      out_file: '/opt/tradingapp/logs/market-start-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true
-    },
-    {
-      name: 'market-stop',
-      script: 'market_hours_control.py',
-      args: 'stop',
-      interpreter: '/usr/bin/python3',
-      cwd: '/opt/tradingapp',
-      instances: 1,
-      autorestart: false,
-      cron_restart: '30 10 * * 1-5',  // 4:00 PM IST = 10:30 UTC, Mon-Fri
-      watch: false,
-      env: {
-        PATH: '/usr/local/bin:/usr/bin:/bin',
-        TZ: 'UTC'
-      },
-      error_file: '/opt/tradingapp/logs/market-stop-error.log',
-      out_file: '/opt/tradingapp/logs/market-stop-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true
     }
+    // Market hours control moved to systemd timers:
+    // - tradingapp-start.timer → starts at 9:00 AM IST (3:30 UTC)
+    // - tradingapp-stop.timer → stops at 3:40 PM IST (10:10 UTC)
+    // Services controlled: ingestion, depth-collector, signal-generator, worker-1, worker-2, worker-3
   ]
 };

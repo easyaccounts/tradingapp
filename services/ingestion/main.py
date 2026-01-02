@@ -208,24 +208,26 @@ def main():
             for token, info in instruments_cache.items():
                 if info.security_id and info.source == 'dhan':
                     # Map exchange to Dhan exchange segment based on exchange AND instrument_type
-                    # NSE has both equity (0) and F&O (1) segments
+                    # Reference: https://dhanhq.co/docs/v2/annexure/#exchange-segment
                     if info.exchange == 'NSE':
-                        # Options and Futures trade on NSE F&O (segment 1)
+                        # Options and Futures trade on NSE F&O (segment 2)
                         if info.instrument_type in ('CE', 'PE', 'FUT'):
-                            exchange_segment = 1  # NSE_FNO
+                            exchange_segment = 2  # NSE_FNO
                         else:
-                            exchange_segment = 0  # NSE_EQ
+                            exchange_segment = 1  # NSE_EQ
                     elif info.exchange == 'BSE':
                         if info.instrument_type in ('CE', 'PE', 'FUT'):
-                            exchange_segment = 4  # BSE_FNO
+                            exchange_segment = 8  # BSE_FNO
                         else:
-                            exchange_segment = 3  # BSE_EQ
+                            exchange_segment = 4  # BSE_EQ
                     elif info.exchange == 'MCX':
-                        exchange_segment = 6  # MCX_COM
-                    elif info.exchange in ('CDS', 'BCD'):
-                        exchange_segment = 7  # NSE_CURRENCY or BCD
+                        exchange_segment = 5  # MCX_COMM
+                    elif info.exchange in ('CDS', 'NSE_CURRENCY'):
+                        exchange_segment = 3  # NSE_CURRENCY
+                    elif info.exchange in ('BCD', 'BSE_CURRENCY'):
+                        exchange_segment = 7  # BSE_CURRENCY
                     else:
-                        exchange_segment = 1  # Default to NSE_FNO
+                        exchange_segment = 2  # Default to NSE_FNO
                     
                     dhan_instruments.append({
                         'security_id': info.security_id,

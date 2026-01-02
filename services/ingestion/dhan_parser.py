@@ -17,23 +17,27 @@ logger = structlog.get_logger()
 # Timezone
 IST = ZoneInfo('Asia/Kolkata')
 
-# Feed Response Codes
+# Feed Response Codes (from Annexure)
+RESPONSE_INDEX = 1           # Index Packet
 RESPONSE_TICKER = 2          # LTP + LTT (16 bytes)
 RESPONSE_QUOTE = 4           # Complete quote data (51 bytes)
 RESPONSE_OI = 5              # Open Interest (12 bytes)
 RESPONSE_PREV_CLOSE = 6      # Previous close (16 bytes)
-RESPONSE_FULL = 8            # Full packet with depth (171 bytes)
+RESPONSE_MARKET_STATUS = 7   # Market Status Packet
+RESPONSE_FULL = 8            # Full packet with depth (163 bytes)
 RESPONSE_DISCONNECT = 50     # Disconnection packet
 
 # Exchange Segment Enum (from Annexure)
+# Reference: https://dhanhq.co/docs/v2/annexure/#exchange-segment
 EXCHANGE_SEGMENTS = {
-    0: 'NSE_EQ',
-    1: 'NSE_FNO',
-    2: 'NSE_CURRENCY',
-    3: 'BSE_EQ',
-    4: 'BSE_FNO',
-    5: 'BSE_CURRENCY',
-    6: 'MCX_COMM'
+    0: 'IDX_I',
+    1: 'NSE_EQ',
+    2: 'NSE_FNO',
+    3: 'NSE_CURRENCY',
+    4: 'BSE_EQ',
+    5: 'MCX_COMM',
+    7: 'BSE_CURRENCY',
+    8: 'BSE_FNO'
 }
 
 
@@ -75,6 +79,37 @@ def parse_response_header(data: bytes) -> Optional[Dict]:
         return None
 
 
+def parse_index_packet(data: bytes) -> Optional[Dict]:
+    """
+    Parse Index Packet (Response Code 1) - Similar structure to ticker
+    
+    Structure after header:
+    - Bytes 9-12: Index Value (float32)
+    - Bytes 13-16: Index Time EPOCH (int32)
+    """
+    if len(data) < 16:
+        return None
+    
+    try:
+        header = parse_response_header(data[0:8])
+        if not header:
+            return None
+        
+        index_value = struct.unpack('<f', data[8:12])[0]
+        index_time_epoch = struct.unpack('<i', data[12:16])[0]
+        index_time = datetime.fromtimestamp(index_time_epoch, tz=IST) if index_time_epoch > 0 else None
+        
+        return {
+            **header,
+            'index_value': round(index_value, 2) if index_value > 0 else None,
+            'index_time': index_time,
+            'packet_type': 'index'
+        }
+    except struct.error as e:
+        logger.error("index_parse_failed", error=str(e))
+        return None
+
+
 def parse_ticker_packet(data: bytes) -> Optional[Dict]:
     """
     Parse Ticker Packet (Response Code 2) - 16 bytes
@@ -98,7 +133,8 @@ def parse_ticker_packet(data: bytes) -> Optional[Dict]:
         return {
             **header,
             'last_price': round(last_price, 2) if last_price > 0 else None,
-            'last_trade_time': last_trade_time
+            'last_trade_time': last_trade_time,
+            'packet_type': 'ticker'
         }
     except struct.error as e:
         logger.error("ticker_parse_failed", error=str(e))
@@ -156,7 +192,8 @@ def parse_quote_packet(data: bytes) -> Optional[Dict]:
             'day_open': round(day_open, 2) if day_open > 0 else None,
             'day_close': round(day_close, 2) if day_close > 0 else None,
             'day_high': round(day_high, 2) if day_high > 0 else None,
-            'day_low': round(day_low, 2) if day_low > 0 else None
+            'day_low': round(day_low, 2) if day_low > 0 else None,
+            'packet_type': 'quote'
         }
     except struct.error as e:
         logger.error("quote_parse_failed", error=str(e))
@@ -182,7 +219,8 @@ def parse_oi_packet(data: bytes) -> Optional[Dict]:
         
         return {
             **header,
-            'oi': oi if oi > 0 else None
+            'oi': oi if oi > 0 else None,
+            'packet_type': 'oi'
         }
     except struct.error as e:
         logger.error("oi_parse_failed", error=str(e))
@@ -211,7 +249,8 @@ def parse_prev_close_packet(data: bytes) -> Optional[Dict]:
         return {
             **header,
             'prev_close': round(prev_close, 2) if prev_close > 0 else None,
-            'prev_oi': prev_oi if prev_oi > 0 else None
+            'prev_oi': prev_oi if prev_oi > 0 else None,
+            'packet_type': 'prev_close'
         }
     except struct.error as e:
         logger.error("prev_close_parse_failed", error=str(e))
@@ -249,28 +288,29 @@ def parse_market_depth_level(data: bytes, offset: int) -> Dict:
 
 def parse_full_packet(data: bytes) -> Optional[Dict]:
     """
-    Parse Full Packet (Response Code 8) - 171 bytes
+    Parse Full Packet (Response Code 8) - 163 bytes
     
     Complete trade data + 5 levels of market depth
     
-    Structure after header (bytes 9-170):
-    - 9-12: LTP (float32)
-    - 13-14: LTQ (int16)
-    - 15-18: LTT (int32)
-    - 19-22: ATP (float32)
-    - 23-26: Volume (int32)
-    - 27-30: Sell Qty (int32)
-    - 31-34: Buy Qty (int32)
-    - 35-38: OI (int32)
-    - 39-42: OI High (int32)
-    - 43-46: OI Low (int32)
-    - 47-50: Day Open (float32)
-    - 51-54: Day Close (float32)
-    - 55-58: Day High (float32)
-    - 59-62: Day Low (float32)
-    - 63-162: Market Depth (5 levels × 20 bytes)
+    Structure (per Dhan API docs):
+    - 0-8: Header (8 bytes)
+    - 9-12: LTP (float32) - bytes 9-12
+    - 13-14: LTQ (int16) - bytes 13-14
+    - 15-18: LTT (int32) - bytes 15-18
+    - 19-22: ATP (float32) - bytes 19-22
+    - 23-26: Volume (int32) - bytes 23-26
+    - 27-30: Sell Qty (int32) - bytes 27-30
+    - 31-34: Buy Qty (int32) - bytes 31-34
+    - 35-38: OI (int32) - bytes 35-38
+    - 39-42: OI High (int32) - bytes 39-42
+    - 43-46: OI Low (int32) - bytes 43-46
+    - 47-50: Day Open (float32) - bytes 47-50
+    - 51-54: Day Close (float32) - bytes 51-54
+    - 55-58: Day High (float32) - bytes 55-58
+    - 59-62: Day Low (float32) - bytes 59-62
+    - 63-162: Market Depth (5 levels × 20 bytes = 100 bytes)
     """
-    if len(data) < 171:
+    if len(data) < 163:
         return None
     
     try:
@@ -296,10 +336,10 @@ def parse_full_packet(data: bytes) -> Optional[Dict]:
         
         last_trade_time = datetime.fromtimestamp(ltt_epoch, tz=IST) if ltt_epoch > 0 else None
         
-        # Parse 5 levels of market depth
+        # Parse 5 levels of market depth (starts at byte 63 = index 62)
         depth_levels = []
         for i in range(5):
-            offset = 62 + (i * 20)
+            offset = 62 + (i * 20)  # Byte 63 = index 62 (0-indexed)
             level = parse_market_depth_level(data, offset)
             depth_levels.append(level)
         
@@ -319,7 +359,8 @@ def parse_full_packet(data: bytes) -> Optional[Dict]:
             'day_close': round(day_close, 2) if day_close > 0 else None,
             'day_high': round(day_high, 2) if day_high > 0 else None,
             'day_low': round(day_low, 2) if day_low > 0 else None,
-            'depth': depth_levels
+            'depth': depth_levels,
+            'packet_type': 'full'
         }
     except struct.error as e:
         logger.error("full_packet_parse_failed", error=str(e))
@@ -345,7 +386,8 @@ def parse_disconnect_packet(data: bytes) -> Optional[Dict]:
         
         return {
             **header,
-            'reason_code': reason_code
+            'reason_code': reason_code,
+            'packet_type': 'disconnect'
         }
     except struct.error as e:
         logger.error("disconnect_parse_failed", error=str(e))
@@ -375,17 +417,28 @@ def parse_packet(data: bytes) -> Optional[Dict]:
     
     # Route to appropriate parser
     parsers = {
+        RESPONSE_INDEX: parse_index_packet,
         RESPONSE_TICKER: parse_ticker_packet,
         RESPONSE_QUOTE: parse_quote_packet,
         RESPONSE_OI: parse_oi_packet,
         RESPONSE_PREV_CLOSE: parse_prev_close_packet,
         RESPONSE_FULL: parse_full_packet,
         RESPONSE_DISCONNECT: parse_disconnect_packet
+        # RESPONSE_MARKET_STATUS (7) not implemented - rare packet
     }
     
     parser = parsers.get(response_code)
     if parser:
-        return parser(data)
+        try:
+            result = parser(data)
+            if result:
+                return result
+            else:
+                logger.debug("parser_returned_none", code=response_code, length=len(data))
+                return None
+        except Exception as e:
+            logger.error("parser_exception", code=response_code, error=str(e), length=len(data))
+            return None
     else:
-        logger.warning("unknown_response_code", code=response_code)
+        logger.warning("unknown_response_code", code=response_code, length=len(data))
         return None

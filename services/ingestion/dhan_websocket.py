@@ -152,12 +152,25 @@ class DhanWebSocketClient:
         Returns:
             JSON string for subscription
         """
+        # Map segment integer to string (per Dhan API docs)
+        segment_map = {
+            0: 'IDX_I',
+            1: 'NSE_EQ',
+            2: 'NSE_FNO',
+            3: 'NSE_CURRENCY',
+            4: 'BSE_EQ',
+            5: 'MCX_COMM',
+            7: 'BSE_CURRENCY',
+            8: 'BSE_FNO'
+        }
+        segment_str = segment_map.get(exchange_segment, 'NSE_FNO')
+        
         message = {
             "RequestCode": request_code,
             "InstrumentCount": len(security_ids),
             "InstrumentList": [
                 {
-                    "ExchangeSegment": exchange_segment,
+                    "ExchangeSegment": segment_str,
                     "SecurityId": security_id
                 }
                 for security_id in security_ids
