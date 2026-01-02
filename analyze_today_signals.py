@@ -28,6 +28,19 @@ DB_CONFIG = {
 IST = pytz.timezone('Asia/Kolkata')
 
 
+def get_state_from_pressure(pressure_60s):
+    """Determine market state based on pressure value"""
+    if pressure_60s is None:
+        return 'neutral'
+    p = float(pressure_60s)
+    if p > 0.3:
+        return 'bullish'
+    elif p < -0.3:
+        return 'bearish'
+    else:
+        return 'neutral'
+
+
 def get_today_signals():
     """Fetch today's depth signals"""
     conn = psycopg2.connect(**DB_CONFIG)
@@ -223,16 +236,6 @@ def analyze_pressure_price_correlation(signals):
         segment['price_range'] = segment['price_high'] - segment['price_low']
     
     return pressure_segments
-    """Determine market state based on pressure value"""
-    if pressure_60s is None:
-        return 'neutral'
-    p = float(pressure_60s)
-    if p > 0.3:
-        return 'bullish'
-    elif p < -0.3:
-        return 'bearish'
-    else:
-        return 'neutral'
 
 
 def analyze_pressure_shifts(signals):
