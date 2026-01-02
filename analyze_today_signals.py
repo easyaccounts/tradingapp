@@ -94,96 +94,94 @@ def analyze_level_lifecycle(signals):
     return level_history
 
 
-def find_pressure_threshold_crossings(signals):
-    """Find price levels where 30s pressure crosses ±0.3 thresholds"""
-    crossings = []
-    prev_pressure_30s = None
+def find_high_qty_levels(signals):
+    """Find key levels with peak or avg qty > 15k"""
+    high_qty_levels = {}
     
     for record in signals:
         time = record['time'].astimezone(IST)
         price = float(record['current_price'])
-        pressure_30s = float(record['pressure_30s']) if record['pressure_30s'] else 0
+        levels = record['key_levels'] if record['key_levels'] else []
         
-        if prev_pressure_30s is not None:
-            # Check for crossing above 0.3 (bullish threshold)
-            if prev_pressure_30s <= 0.3 and pressure_30s > 0.3:
-                crossings.append({
-                    'type': 'bullish_breakout',
-                    'time': time,
-                    'price': price,
-                    'pressure': pressure_30s,
-                    'direction': '↑ BULLISH THRESHOLD CROSSED'
-                })
+        for level in levels:
+            # Check if peak_qty or avg_qty exceeds 15k
+            peak_qty = level.get('peak_qty', 0)
+            avg_qty = level.get('avg_qty', 0)
             
-            # Check for crossing below -0.3 (bearish threshold)
-            elif prev_pressure_30s >= -0.3 and pressure_30s < -0.3:
-                crossings.append({
-                    'type': 'bearish_breakout',
-                    'time': time,
-                    'price': price,
-                    'pressure': pressure_30s,
-                    'direction': '↓ BEARISH THRESHOLD CROSSED'
-                })
-        
-        prev_pressure_30s = pressure_30s
+            if peak_qty > 15000 or avg_qty > 15000:
+                level_key = (round(level['price'], 2), level['side'])
+                
+                if level_key not in high_qty_levels:
+                    high_qty_levels[level_key] = {
+                        'price': level['price'],
+                        'side': level['side'],
+                        'peak_qty': peak_qty,
+                        'avg_qty': avg_qty,
+                        'tests': level['tests'],
+                        'strength': level['strength'],
+                        'first_seen': time,
+                        'distance': level['distance'],
+                        'age_seconds': level['age_seconds']
+                    }
     
-    return crossings
+    return high_qty_levels
 
 
-def validate_threshold_signals(signals):
-    """Validate if price actually reverses at threshold crossings (2 minutes later)"""
-    crossings = find_pressure_threshold_crossings(signals)
-    
-    if not crossings:
-        return []
-    
-    # Get price data after each crossing
+def validate_level_holds(signals, high_qty_levels):
+    """Validate if high-qty levels actually hold as support/resistance"""
     signal_list = list(signals)
     validated = []
     
-    for i, crossing in enumerate(crossings):
-        crossing_time = crossing['time']
-        crossing_price = crossing['price']
+    for level_key, level_info in high_qty_levels.items():
+        level_price = level_info['price']
+        side = level_info['side']  # 'bid' or 'ask'
         
-        # Find the signal in the full list
-        signal_idx = None
-        for j, sig in enumerate(signal_list):
-            if sig['time'].astimezone(IST) == crossing_time:
-                signal_idx = j
-                break
+        # Find first time price tests this level
+        first_test_idx = None
+        for i, sig in enumerate(signal_list):
+            current_price = float(sig['current_price'])
+            
+            if side == 'bid':  # Support level - price should not go below
+                if current_price <= level_price:
+                    first_test_idx = i
+                    break
+            else:  # Resistance level - price should not go above
+                if current_price >= level_price:
+                    first_test_idx = i
+                    break
         
-        if signal_idx is None or signal_idx >= len(signal_list) - 12:
+        if first_test_idx is None or first_test_idx >= len(signal_list) - 12:
             continue
         
-        # Get prices for next 12 signals (~120 seconds = 2 minutes forward)
-        future_prices = [float(signal_list[signal_idx + k]['current_price']) 
-                        for k in range(1, min(13, len(signal_list) - signal_idx))]
+        # Check next 12 signals (2 minutes) to see if level held
+        test_time = signal_list[first_test_idx]['time'].astimezone(IST)
+        test_price = float(signal_list[first_test_idx]['current_price'])
         
-        if not future_prices:
-            continue
+        future_prices = [float(signal_list[j]['current_price']) 
+                        for j in range(first_test_idx, min(first_test_idx + 13, len(signal_list)))]
         
-        max_future = max(future_prices)
-        min_future = min(future_prices)
-        final_future = future_prices[-1]
+        max_penetration = 0
+        min_price_after = min(future_prices) if future_prices else test_price
+        max_price_after = max(future_prices) if future_prices else test_price
         
-        # Determine if signal was correct
-        if crossing['type'] == 'bearish_breakout':
-            # Bearish signal should have price go down
-            signal_worked = final_future < crossing_price
-            move = final_future - crossing_price
-        else:  # bullish_breakout
-            # Bullish signal should have price go up
-            signal_worked = final_future > crossing_price
-            move = final_future - crossing_price
+        # Check if level held
+        if side == 'bid':  # Support - check if price bounced up
+            min_after_test = min(future_prices[1:]) if len(future_prices) > 1 else test_price
+            max_penetration = level_price - min_after_test  # How far below it went
+            level_held = min_after_test >= level_price
+        else:  # Resistance - check if price bounced down
+            max_after_test = max(future_prices[1:]) if len(future_prices) > 1 else test_price
+            max_penetration = max_after_test - level_price  # How far above it went
+            level_held = max_after_test <= level_price
         
         validated.append({
-            **crossing,
-            'price_low_after': min_future,
-            'price_high_after': max_future,
-            'price_final': final_future,
-            'price_move_after': move,
-            'signal_correct': signal_worked,
-            'signal_idx': signal_idx
+            **level_info,
+            'test_time': test_time,
+            'test_price': test_price,
+            'price_min_after': min_price_after,
+            'price_max_after': max_price_after,
+            'penetration_points': max_penetration,
+            'level_held': level_held
         })
     
     return validated
@@ -416,14 +414,14 @@ def analyze_pressure_shifts(signals):
 
 
 def print_report(signals):
-    """Generate pressure analysis report"""
+    """Generate high-qty level analysis report"""
     if not signals:
         print("❌ No signals found for today")
         return
     
-    print("="*80)
-    print(f"📊 PRESSURE ANALYSIS - {datetime.now(IST).strftime('%Y-%m-%d')}")
-    print("="*80)
+    print("="*90)
+    print(f"📊 HIGH-QUANTITY LEVEL ANALYSIS - {datetime.now(IST).strftime('%Y-%m-%d')}")
+    print("="*90)
     
     # Basic stats
     first_signal = signals[0]
@@ -437,57 +435,64 @@ def print_report(signals):
     print(f"💰 Price: ₹{start_price:.2f} → ₹{end_price:.2f} ({end_price - start_price:+.2f})")
     print(f"📈 Total signals: {len(signals)}\n")
     
-    # PRESSURE THRESHOLD CROSSINGS
-    print("="*80)
-    print("🎯 PRESSURE THRESHOLD CROSSINGS (30s pressure ±0.3)")
-    print("="*80)
+    # FIND HIGH-QTY LEVELS
+    print("="*90)
+    print("🎯 KEY LEVELS WITH PEAK/AVG QTY > 15k")
+    print("="*90)
     
-    validated_crossings = validate_threshold_signals(signals)
+    high_qty_levels = find_high_qty_levels(signals)
     
-    if validated_crossings:
-        print(f"\nDetected {len(validated_crossings)} threshold crossings (with validation):\n")
-        print(f"{'Time':<10} {'Type':<20} {'Price Level':<14} {'Price After 30s':<16} {'Result':<12}")
-        print("-"*75)
+    if high_qty_levels:
+        print(f"\nIdentified {len(high_qty_levels)} high-quantity levels\n")
         
-        for crossing in validated_crossings:
-            icon = "🟢" if crossing['type'] == 'bullish_breakout' else "🔴"
-            crossing_type = crossing['direction']
-            result_icon = "✅" if crossing['signal_correct'] else "❌"
-            result = f"{result_icon} {crossing['price_move_after']:+.2f}"
+        # Validate if they hold
+        validated_levels = validate_level_holds(signals, high_qty_levels)
+        
+        if validated_levels:
+            # Sort by side (bid first) then by price descending
+            bid_levels = sorted([l for l in validated_levels if l['side'] == 'bid'], 
+                               key=lambda x: x['price'], reverse=True)
+            ask_levels = sorted([l for l in validated_levels if l['side'] == 'ask'], 
+                               key=lambda x: x['price'])
             
-            print(f"{crossing['time'].strftime('%H:%M:%S'):<10} {icon} {crossing_type:<18} ₹{crossing['price']:<13.2f} ₹{crossing['price_final']:<15.2f} {result:<12}")
-        
-        # Group by type and validate
-        bullish_crossings = [c for c in validated_crossings if c['type'] == 'bullish_breakout']
-        bearish_crossings = [c for c in validated_crossings if c['type'] == 'bearish_breakout']
-        
-        print(f"\n📊 Signal Validation Summary:")
-        
-        if bullish_crossings:
-            bullish_correct = sum(1 for c in bullish_crossings if c['signal_correct'])
-            bullish_accuracy = (bullish_correct / len(bullish_crossings)) * 100 if bullish_crossings else 0
-            print(f"   🟢 Bullish Signals: {len(bullish_crossings)} total, {bullish_correct} correct ({bullish_accuracy:.0f}% accuracy)")
-            print(f"      Average price move after signal: {sum(c['price_move_after'] for c in bullish_crossings) / len(bullish_crossings):+.2f}")
-        
-        if bearish_crossings:
-            bearish_correct = sum(1 for c in bearish_crossings if c['signal_correct'])
-            bearish_accuracy = (bearish_correct / len(bearish_crossings)) * 100 if bearish_crossings else 0
-            print(f"   🔴 Bearish Signals: {len(bearish_crossings)} total, {bearish_correct} correct ({bearish_accuracy:.0f}% accuracy)")
-            print(f"      Average price move after signal: {sum(c['price_move_after'] for c in bearish_crossings) / len(bearish_crossings):+.2f}")
-        
-        # Level ranges
-        print(f"\n📍 Level Ranges:")
-        if bullish_crossings:
-            prices = [c['price'] for c in bullish_crossings]
-            print(f"   🟢 Bullish Prices: {', '.join([f'₹{p:.2f}' for p in sorted(prices)])}")
-        
-        if bearish_crossings:
-            prices = [c['price'] for c in bearish_crossings]
-            print(f"   🔴 Bearish Prices: {', '.join([f'₹{p:.2f}' for p in sorted(prices)])}")
+            print(f"{'Level':<10} {'Side':<6} {'Peak Qty':<12} {'Avg Qty':<12} {'Tests':<8} {'Held?':<8} {'Penetration':<14}")
+            print("-"*90)
+            
+            for level in bid_levels + ask_levels:
+                icon = "📍" if level['level_held'] else "❌"
+                side_icon = "🔵" if level['side'] == 'bid' else "🔴"
+                held_text = "✅ YES" if level['level_held'] else f"NO ({level['penetration_points']:.2f}₹)"
+                
+                print(f"₹{level['price']:<9.2f} {side_icon} Bid   {level['peak_qty']:<11,.0f} {level['avg_qty']:<11,.0f} {level['tests']:<7} {held_text:<13} {level['penetration_points']:<14.2f}")
+            
+            # Summary statistics
+            print("\n📊 Level Hold Statistics:")
+            held = [l for l in validated_levels if l['level_held']]
+            broken = [l for l in validated_levels if not l['level_held']]
+            
+            if held:
+                hold_rate = (len(held) / len(validated_levels)) * 100
+                print(f"   ✅ Held levels: {len(held)} ({hold_rate:.0f}%)")
+                print(f"      Avg penetration (when held): {sum(l['penetration_points'] for l in held) / len(held):.2f}₹")
+            
+            if broken:
+                break_rate = (len(broken) / len(validated_levels)) * 100
+                print(f"   ❌ Broken levels: {len(broken)} ({break_rate:.0f}%)")
+                print(f"      Avg penetration (when broken): {sum(l['penetration_points'] for l in broken) / len(broken):.2f}₹")
+            
+            # High-confidence levels (held with no penetration)
+            clean_holds = [l for l in held if l['penetration_points'] < 2]
+            if clean_holds:
+                print(f"\n🏆 High-Confidence Levels (clean holds, <2₹ penetration):")
+                for level in clean_holds:
+                    print(f"   ₹{level['price']:.2f} ({level['side'].upper()}) - Peak Qty: {level['peak_qty']:,.0f}")
+        else:
+            print("   No levels with valid test data")
     else:
-        print("\n   No threshold crossings detected")
+        print("\n   No levels with peak/avg qty > 15k found")
     
-    print("\n" + "="*80)
+    print("\n" + "="*90)
+
 
 
 def main():
