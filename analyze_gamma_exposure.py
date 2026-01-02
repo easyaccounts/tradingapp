@@ -275,6 +275,11 @@ def extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, op
     if market_price <= 0 or time_to_expiry_years <= 0:
         return 0.15
     
+    # MICRO-PREMIUM DETECTION: For premiums < 0.1 (deep OTM), use conservative IV
+    # These options have extremely low liquidity/value and solver struggles with them
+    if market_price < 0.1:
+        return 0.15
+    
     # OPTIMIZATION: Strike-based cache (IV is strike-specific, not spot-specific)
     # Same strike should have similar IV for both calls and puts (put-call parity)
     cache_key = (round(strike, 0), round(time_to_expiry_years * 365, 0))
@@ -295,8 +300,8 @@ def extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, op
         
         if lower_val * upper_val > 0:
             # No solution in range - market price might be unrealistic
-            # Use midpoint as fallback
-            iv = (MIN_IV + MAX_IV) / 2
+            # Use MIN_IV as fallback (better than MAX_IV for boundary cases)
+            iv = MIN_IV
         else:
             # Brent's method converges faster than bisection
             # Relaxed tolerance for speed (±0.1% IV acceptable)
@@ -304,8 +309,8 @@ def extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, op
             iv = max(MIN_IV, min(MAX_IV, iv))
     
     except Exception as e:
-        # Solver failed - return midpoint
-        iv = (MIN_IV + MAX_IV) / 2
+        # Solver failed - return MIN_IV as fallback
+        iv = MIN_IV
     
     # Cache the result
     IV_CACHE[cache_key] = iv
