@@ -202,13 +202,13 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
     # Extract all tokens
     all_tokens = [t[0] for t in tokens_dict.values()]
     
-    # Query aggregated data in 5-minute intervals
+    # Query aggregated data in 10-minute intervals with OI-weighted premium
     interval_query = """
     SELECT 
         DATE_TRUNC('minute', time) - 
-        (EXTRACT(MINUTE FROM time)::int %% 5) * INTERVAL '1 minute' as interval_start,
+        (EXTRACT(MINUTE FROM time)::int %% 10) * INTERVAL '1 minute' as interval_start,
         SUM(oi) as total_oi,
-        AVG(last_price) as avg_premium,
+        SUM(oi * last_price) as weighted_premium_sum,
         COUNT(DISTINCT instrument_token) as token_count
     FROM ticks
     WHERE instrument_token = ANY(%s::int[])
@@ -237,7 +237,10 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
         interval_time_utc = row['interval_start'].replace(tzinfo=pytz.UTC)
         interval_time_ist = interval_time_utc.astimezone(IST)
         total_oi = row['total_oi'] or 0
-        avg_premium = float(row['avg_premium']) if row['avg_premium'] else 0
+        weighted_premium_sum = float(row['weighted_premium_sum']) if row['weighted_premium_sum'] else 0
+        
+        # Calculate OI-weighted average premium
+        avg_premium = (weighted_premium_sum / total_oi) if total_oi > 0 else 0
         
         # Calculate changes
         oi_change = (total_oi - prev_oi) if prev_oi is not None else 0
@@ -254,17 +257,27 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
     if len(intervals) > 0:
         first = intervals[0]
         last = intervals[-1]
-        total_oi_change = (last['total_oi'] or 0) - (first['total_oi'] or 0)
-        total_oi_change_pct = ((total_oi_change / first['total_oi']) * 100) if first['total_oi'] and first['total_oi'] > 0 else 0
-        avg_premium_change = (float(last['avg_premium']) if last['avg_premium'] else 0) - (float(first['avg_premium']) if first['avg_premium'] else 0)
+        
+        # Calculate weighted averages for summary
+        first_total_oi = first['total_oi'] or 0
+        last_total_oi = last['total_oi'] or 0
+        first_weighted_sum = float(first['weighted_premium_sum']) if first['weighted_premium_sum'] else 0
+        last_weighted_sum = float(last['weighted_premium_sum']) if last['weighted_premium_sum'] else 0
+        
+        first_avg_premium = (first_weighted_sum / first_total_oi) if first_total_oi > 0 else 0
+        last_avg_premium = (last_weighted_sum / last_total_oi) if last_total_oi > 0 else 0
+        
+        total_oi_change = last_total_oi - first_total_oi
+        total_oi_change_pct = ((total_oi_change / first_total_oi) * 100) if first_total_oi > 0 else 0
+        avg_premium_change = last_avg_premium - first_avg_premium
         
         print("-" * 80)
         print(f"\n📊 {option_type} Summary:")
-        print(f"   Opening OI: {first['total_oi'] or 0:,}")
-        print(f"   Current OI: {last['total_oi'] or 0:,}")
+        print(f"   Opening OI: {first_total_oi:,}")
+        print(f"   Current OI: {last_total_oi:,}")
         print(f"   Total OI Change: {total_oi_change:+,} ({total_oi_change_pct:+.1f}%)")
-        print(f"   Opening Avg Premium: ₹{float(first['avg_premium']) if first['avg_premium'] else 0:.2f}")
-        print(f"   Current Avg Premium: ₹{float(last['avg_premium']) if last['avg_premium'] else 0:.2f}")
+        print(f"   Opening Avg Premium: ₹{first_avg_premium:.2f}")
+        print(f"   Current Avg Premium: ₹{last_avg_premium:.2f}")
         print(f"   Avg Premium Change: ₹{avg_premium_change:+.2f}")
     
     cursor.close()
@@ -383,8 +396,11 @@ def main():
     if len(sys.argv) > 1:
         try:
             from datetime import datetime
-            analysis_time = datetime.strptime(sys.argv[1], '%Y-%m-%d').replace(hour=15, minute=30)
-            analysis_time = IST.localize(analysis_time)
+            # For date override, use current time of that day
+            override_date = datetime.strptime(sys.argv[1], '%Y-%m-%d')
+            now_utc = datetime.now(pytz.UTC)
+            now_ist = now_utc.astimezone(IST)
+            analysis_time = IST.localize(datetime.combine(override_date.date(), now_ist.time()))
             print(f"Analysis date override: {analysis_time.strftime('%Y-%m-%d %H:%M:%S IST')}\n")
         except:
             print("Invalid date format. Use: python script.py YYYY-MM-DD")
