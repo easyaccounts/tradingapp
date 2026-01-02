@@ -130,14 +130,25 @@ def analyze_options_positioning(expiry, cutoff_time=None):
         SELECT COUNT(*) as count
         FROM ticks
         WHERE time >= DATE_TRUNC('day', %s AT TIME ZONE 'Asia/Kolkata')
+        AND time <= %s
         AND (instrument_token = ANY(%s) OR instrument_token = ANY(%s))
-        LIMIT 1
         """
         
         call_token_list = [t[0] for t in call_tokens.values()]
         put_token_list = [t[0] for t in put_tokens.values()]
         
-        cursor.execute(check_query, (cutoff_time, call_token_list, put_token_list))
+        cursor.execute(check_query, (cutoff_time, cutoff_time, call_token_list, put_token_list))
+        data_check = cursor.fetchone()
+        
+        if not data_check or data_check['count'] == 0:
+            print("⚠️  No tick data found for NIFTY options TODAY")
+            print("   Market may not be open yet or data collection hasn't started")
+            print(f"   Current time: {cutoff_time.strftime('%Y-%m-%d %H:%M:%S IST')}\n")
+            cursor.close()
+            conn.close()
+            return
+        
+        print(f"✓ Found {data_check['count']} tick records for today\n")
         data_check = cursor.fetchone()
         
         if not data_check or data_check['count'] == 0:
