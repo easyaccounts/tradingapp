@@ -136,15 +136,23 @@ def parse_dhan_csv(csv_path: str) -> List[Dict]:
                     elif row['SEM_INSTRUMENT_NAME'].strip() in ['INDEX', 'EQ']:
                         instrument_type = 'EQ'
                     
-                    # Parse expiry date
+                    # Parse expiry date (extract date only)
                     expiry = None
                     expiry_str = row['SEM_EXPIRY_DATE'].strip()
                     if expiry_str:
                         try:
-                            # Format: DD-MMM-YYYY (e.g., "28-NOV-2024")
-                            expiry = datetime.strptime(expiry_str, '%d-%b-%Y').date()
+                            # Format: YYYY-MM-DD HH:MM:SS - extract just the date
+                            if ' ' in expiry_str:
+                                expiry = datetime.strptime(expiry_str.split()[0], '%Y-%m-%d').date()
+                            else:
+                                # Fallback: Try as date only
+                                expiry = datetime.strptime(expiry_str, '%Y-%m-%d').date()
                         except ValueError:
-                            pass
+                            try:
+                                # Legacy format: DD-MMM-YYYY
+                                expiry = datetime.strptime(expiry_str, '%d-%b-%Y').date()
+                            except ValueError:
+                                pass
                     
                     # Parse strike price
                     strike = None
