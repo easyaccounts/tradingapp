@@ -10,7 +10,7 @@ import structlog
 from typing import Dict, Optional, List
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from models import KiteTick, EnrichedTick, InstrumentInfo
+from models import KiteTick, EnrichedTick, InstrumentInfo, DhanTick
 
 logger = structlog.get_logger()
 
@@ -42,7 +42,8 @@ def load_instruments_cache(database_url: str, redis_client: Optional[redis.Redis
         cursor.execute("""
             SELECT 
                 instrument_token, trading_symbol, exchange, segment,
-                instrument_type, name, expiry, strike, tick_size, lot_size
+                instrument_type, name, expiry, strike, tick_size, lot_size,
+                security_id, source
             FROM instruments
             WHERE is_active = TRUE
         """)
@@ -61,7 +62,9 @@ def load_instruments_cache(database_url: str, redis_client: Optional[redis.Redis
                     expiry=row[6].isoformat() if row[6] else None,
                     strike=float(row[7]) if row[7] else None,
                     lot_size=int(row[9]) if row[9] else None,
-                    tick_size=float(row[8]) if row[8] else None
+                    tick_size=float(row[8]) if row[8] else None,
+                    security_id=row[10],  # Dhan security_id
+                    source=row[11] if row[11] else "kite"  # Data source
                 )
                 instruments_cache[row[0]] = instrument
             except Exception as e:
@@ -350,4 +353,138 @@ def _calculate_change_percent(change: Optional[float], close: Optional[float]) -
     if change is not None and close is not None and close > 0:
         return round((change / close) * 100, 4)
     return None
+
+
+def dhan_tick_to_enriched(
+    raw_tick: DhanTick,
+    instruments_cache: Dict[int, InstrumentInfo]
+) -> Optional[EnrichedTick]:
+    """
+    Transform Dhan tick into enriched format for database
+    
+    Maps Dhan's security_id → instrument_token using instruments cache
+    Calculates change/change_percent from prev_close
+    Converts Dhan market depth to standard format
+    
+    Args:
+        raw_tick: Parsed Dhan tick from binary packet
+        instruments_cache: Dict mapping instrument_token to InstrumentInfo
+    
+    Returns:
+        EnrichedTick ready for database, or None if security_id not found
+    """
+    # Find instrument by security_id
+    instrument_info = None
+    instrument_token = None
+    
+    for token, info in instruments_cache.items():
+        if info.security_id == raw_tick.security_id:
+            instrument_info = info
+            instrument_token = token
+            break
+    
+    if not instrument_token:
+        logger.warning(
+            "security_id_not_found",
+            security_id=raw_tick.security_id,
+            exchange=raw_tick.exchange_segment
+        )
+        return None
+    
+    # Calculate change and change_percent from prev_close
+    change = None
+    change_percent = None
+    
+    if raw_tick.last_price and raw_tick.prev_close and raw_tick.prev_close > 0:
+        change = round(raw_tick.last_price - raw_tick.prev_close, 2)
+        change_percent = round((change / raw_tick.prev_close) * 100, 4)
+    
+    # Extract market depth arrays from Dhan's 5-level depth
+    bid_prices: List[Optional[float]] = [None] * 5
+    bid_quantities: List[Optional[int]] = [None] * 5
+    bid_orders: List[Optional[int]] = [None] * 5
+    
+    ask_prices: List[Optional[float]] = [None] * 5
+    ask_quantities: List[Optional[int]] = [None] * 5
+    ask_orders: List[Optional[int]] = [None] * 5
+    
+    if raw_tick.depth:
+        for i, level in enumerate(raw_tick.depth[:5]):
+            bid_prices[i] = level.bid_price
+            bid_quantities[i] = level.bid_quantity
+            bid_orders[i] = level.bid_orders
+            ask_prices[i] = level.ask_price
+            ask_quantities[i] = level.ask_quantity
+            ask_orders[i] = level.ask_orders
+    
+    # Calculate derived metrics
+    bid_ask_spread = _calculate_spread(bid_prices[0], ask_prices[0])
+    mid_price = _calculate_mid_price(bid_prices[0], ask_prices[0])
+    order_imbalance = _calculate_order_imbalance(
+        raw_tick.total_buy_quantity,
+        raw_tick.total_sell_quantity
+    )
+    
+    # Timestamp conversion (Dhan provides IST timestamps)
+    ist_time = raw_tick.last_trade_time or datetime.now(IST)
+    if ist_time.tzinfo is None:
+        ist_time = ist_time.replace(tzinfo=IST)
+    
+    # Create enriched tick
+    enriched = EnrichedTick(
+        # Timestamps (already in IST from Dhan)
+        time=ist_time,
+        last_trade_time=raw_tick.last_trade_time,
+        
+        # Instrument identification
+        instrument_token=instrument_token,
+        trading_symbol=instrument_info.trading_symbol if instrument_info else None,
+        exchange=instrument_info.exchange if instrument_info else None,
+        instrument_type=instrument_info.instrument_type if instrument_info else None,
+        
+        # Price data
+        last_price=raw_tick.last_price,
+        last_traded_quantity=raw_tick.last_traded_quantity,
+        average_traded_price=raw_tick.average_traded_price,
+        
+        # Volume & OI
+        volume_traded=raw_tick.volume_traded,
+        oi=raw_tick.oi,
+        oi_day_high=raw_tick.oi_day_high,
+        oi_day_low=raw_tick.oi_day_low,
+        
+        # OHLC
+        day_open=raw_tick.day_open,
+        day_high=raw_tick.day_high,
+        day_low=raw_tick.day_low,
+        day_close=raw_tick.day_close,
+        
+        # Change (calculated from prev_close)
+        change=change,
+        change_percent=change_percent,
+        
+        # Order book totals
+        total_buy_quantity=raw_tick.total_buy_quantity,
+        total_sell_quantity=raw_tick.total_sell_quantity,
+        
+        # Market depth
+        bid_prices=bid_prices,
+        bid_quantities=bid_quantities,
+        bid_orders=bid_orders,
+        ask_prices=ask_prices,
+        ask_quantities=ask_quantities,
+        ask_orders=ask_orders,
+        
+        # Metadata
+        tradable=True,
+        mode="full" if raw_tick.depth else "quote",
+        
+        # Derived fields
+        bid_ask_spread=bid_ask_spread,
+        mid_price=mid_price,
+        order_imbalance=order_imbalance
+    )
+    
+    return enriched
+
 

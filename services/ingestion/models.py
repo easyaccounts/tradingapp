@@ -150,3 +150,72 @@ class InstrumentInfo(BaseModel):
     strike: Optional[float] = None
     lot_size: Optional[int] = None
     tick_size: Optional[float] = None
+    # Dhan compatibility
+    security_id: Optional[str] = None
+    source: str = "kite"  # "kite" or "dhan"
+
+
+class DhanResponseHeader(BaseModel):
+    """Dhan WebSocket response header (first 8 bytes)"""
+    response_code: int
+    message_length: int
+    exchange_segment: str  # "NSE_EQ", "NSE_FNO", etc.
+    exchange_segment_code: int
+    security_id: str
+
+
+class DhanMarketDepthLevel(BaseModel):
+    """Single level in Dhan market depth"""
+    bid_quantity: Optional[int] = None
+    ask_quantity: Optional[int] = None
+    bid_orders: Optional[int] = None
+    ask_orders: Optional[int] = None
+    bid_price: Optional[float] = None
+    ask_price: Optional[float] = None
+
+
+class DhanTick(BaseModel):
+    """
+    Dhan WebSocket Tick Model
+    Parsed from binary packets (Little Endian)
+    
+    Reference: https://dhanhq.co/docs/v2/live-market-feed/
+    """
+    # Header fields
+    response_code: int
+    message_length: int
+    exchange_segment: str
+    exchange_segment_code: int
+    security_id: str
+    
+    # Price data (all packets)
+    last_price: Optional[float] = None
+    last_traded_quantity: Optional[int] = None
+    last_trade_time: Optional[datetime] = None
+    
+    # Quote data (response codes 4, 8)
+    average_traded_price: Optional[float] = None
+    volume_traded: Optional[int] = None
+    total_sell_quantity: Optional[int] = None
+    total_buy_quantity: Optional[int] = None
+    
+    # OHLC (response codes 4, 8)
+    day_open: Optional[float] = None
+    day_close: Optional[float] = None
+    day_high: Optional[float] = None
+    day_low: Optional[float] = None
+    
+    # Open Interest (response code 5, 8)
+    oi: Optional[int] = None
+    oi_day_high: Optional[int] = None
+    oi_day_low: Optional[int] = None
+    
+    # Previous day data (response code 6)
+    prev_close: Optional[float] = None
+    prev_oi: Optional[int] = None
+    
+    # Market Depth (response code 8 only - 5 levels)
+    depth: Optional[List[DhanMarketDepthLevel]] = None
+    
+    class Config:
+        arbitrary_types_allowed = True

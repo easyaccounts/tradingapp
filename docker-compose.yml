@@ -83,13 +83,14 @@ services:
     networks:
       - tradingapp-network
 
-  # Ingestion Service - KiteConnect WebSocket handler (DISABLED - runs via PM2)
+  # Ingestion Service - KiteConnect or Dhan WebSocket handler
   ingestion:
     build:
       context: ./services/ingestion
       dockerfile: Dockerfile
     container_name: tradingapp-ingestion
     environment:
+      DATA_SOURCE: ${DATA_SOURCE:-kite}
       REDIS_URL: ${REDIS_URL}
       RABBITMQ_URL: ${RABBITMQ_URL}
       KITE_API_KEY: ${KITE_API_KEY}
