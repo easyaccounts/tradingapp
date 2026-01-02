@@ -128,7 +128,7 @@ def find_high_qty_levels(signals):
 
 
 def validate_level_holds(signals, high_qty_levels):
-    """Validate if high-qty levels actually hold as support/resistance"""
+    """Analyze if high-qty level breaks result in momentum continuation"""
     signal_list = list(signals)
     validated = []
     
@@ -141,11 +141,11 @@ def validate_level_holds(signals, high_qty_levels):
         for i, sig in enumerate(signal_list):
             current_price = float(sig['current_price'])
             
-            if side == 'support':  # Support level - price should not go below
+            if side == 'support':  # Support level - price going below
                 if current_price <= level_price:
                     first_test_idx = i
                     break
-            else:  # Resistance level - price should not go above
+            else:  # Resistance level - price going above
                 if current_price >= level_price:
                     first_test_idx = i
                     break
@@ -153,26 +153,27 @@ def validate_level_holds(signals, high_qty_levels):
         if first_test_idx is None or first_test_idx >= len(signal_list) - 12:
             continue
         
-        # Check next 12 signals (2 minutes) to see if level held
+        # Check next 12 signals (2 minutes) to see momentum after break
         test_time = signal_list[first_test_idx]['time'].astimezone(IST)
         test_price = float(signal_list[first_test_idx]['current_price'])
         
         future_prices = [float(signal_list[j]['current_price']) 
                         for j in range(first_test_idx, min(first_test_idx + 13, len(signal_list)))]
         
-        max_penetration = 0
         min_price_after = min(future_prices) if future_prices else test_price
         max_price_after = max(future_prices) if future_prices else test_price
         
-        # Check if level held
-        if side == 'support':  # Support - check if price bounced up
-            min_after_test = min(future_prices[1:]) if len(future_prices) > 1 else test_price
-            max_penetration = level_price - min_after_test  # How far below it went
-            level_held = min_after_test >= level_price
-        else:  # Resistance - check if price bounced down
-            max_after_test = max(future_prices[1:]) if len(future_prices) > 1 else test_price
-            max_penetration = max_after_test - level_price  # How far above it went
-            level_held = max_after_test <= level_price
+        # Calculate break momentum
+        if side == 'support':  # Support broken downward = bearish
+            penetration = level_price - min(future_prices[1:]) if len(future_prices) > 1 else 0
+            final_price = future_prices[-1] if future_prices else test_price
+            momentum_strength = final_price - level_price  # Negative = stronger bearish
+            signal_worked = final_price < level_price  # Price stayed below
+        else:  # Resistance broken upward = bullish
+            penetration = max(future_prices[1:]) - level_price if len(future_prices) > 1 else 0
+            final_price = future_prices[-1] if future_prices else test_price
+            momentum_strength = final_price - level_price  # Positive = stronger bullish
+            signal_worked = final_price > level_price  # Price stayed above
         
         validated.append({
             **level_info,
@@ -180,8 +181,9 @@ def validate_level_holds(signals, high_qty_levels):
             'test_price': test_price,
             'price_min_after': min_price_after,
             'price_max_after': max_price_after,
-            'penetration_points': max_penetration,
-            'level_held': level_held
+            'penetration_points': penetration,
+            'momentum_strength': momentum_strength,
+            'momentum_confirmed': signal_worked
         })
     
     return validated
@@ -437,7 +439,7 @@ def print_report(signals):
     
     # FIND HIGH-QTY LEVELS
     print("\n" + "="*90)
-    print("🎯 KEY LEVELS WITH PEAK/AVG QTY > 15k")
+    print("🎯 KEY LEVELS WITH PEAK/AVG QTY > 15k - MOMENTUM ANALYSIS")
     print("="*90)
     
     high_qty_levels = find_high_qty_levels(signals)
@@ -450,48 +452,53 @@ def print_report(signals):
         for (price, side), level_info in list(high_qty_levels.items())[:3]:
             print(f"  ₹{price} ({side}): peak_qty={level_info['peak_qty']}, avg_qty={level_info['avg_qty']}")
         
-        print(f"\nValidating if levels hold...\n")
+        print(f"\nAnalyzing momentum after break...\n")
         
         # Validate if they hold
         validated_levels = validate_level_holds(signals, high_qty_levels)
         
         if validated_levels:
-            # Sort by side (support first) then by price descending
-            support_levels = sorted([l for l in validated_levels if l['side'] == 'support'], 
-                                   key=lambda x: x['price'], reverse=True)
-            resistance_levels = sorted([l for l in validated_levels if l['side'] == 'resistance'], 
-                                      key=lambda x: x['price'])
+            # Sort by penetration (strongest breaks first)
+            validated_levels.sort(key=lambda x: abs(x['penetration_points']), reverse=True)
             
-            print(f"{'Level':<12} {'Side':<12} {'Peak Qty':<12} {'Avg Qty':<12} {'Tests':<8} {'Held?':<12} {'Penetration':<12}")
+            print(f"{'Level':<12} {'Type':<12} {'Peak Qty':<12} {'Penetration':<14} {'Momentum':<12} {'Confirmed?':<12}")
             print("-"*95)
             
-            for level in support_levels + resistance_levels:
-                side_text = "SUPPORT" if level['side'] == 'support' else "RESISTANCE"
-                held_text = "✅ YES" if level['level_held'] else f"❌ {level['penetration_points']:.1f}₹"
+            for level in validated_levels:
+                side_text = "SUPPORT↓" if level['side'] == 'support' else "RESIST↑"
+                momentum_icon = "📈" if level['momentum_strength'] > 0 else "📉"
+                confirmed = "✅ YES" if level['momentum_confirmed'] else "❌ NO"
                 
-                print(f"₹{level['price']:<11.2f} {side_text:<12} {level['peak_qty']:<11,.0f} {level['avg_qty']:<11,.0f} {level['tests']:<7} {held_text:<12} {level['penetration_points']:<11.2f}")
+                print(f"₹{level['price']:<11.2f} {side_text:<12} {level['peak_qty']:<11,.0f} {level['penetration_points']:<13.2f}₹ {momentum_icon} {level['momentum_strength']:+.2f}₹  {confirmed:<11}")
             
             # Summary statistics
-            print("\n📊 Level Hold Statistics:")
-            held = [l for l in validated_levels if l['level_held']]
-            broken = [l for l in validated_levels if not l['level_held']]
+            print("\n📊 Momentum Confirmation Statistics:")
+            confirmed = [l for l in validated_levels if l['momentum_confirmed']]
+            failed = [l for l in validated_levels if not l['momentum_confirmed']]
             
-            if held:
-                hold_rate = (len(held) / len(validated_levels)) * 100
-                print(f"   ✅ Held levels: {len(held)} ({hold_rate:.0f}%)")
-                print(f"      Avg penetration (when held): {sum(l['penetration_points'] for l in held) / len(held):.2f}₹")
+            if confirmed:
+                confirm_rate = (len(confirmed) / len(validated_levels)) * 100
+                print(f"   ✅ Momentum Confirmed: {len(confirmed)} ({confirm_rate:.0f}%)")
+                avg_penetration = sum(l['penetration_points'] for l in confirmed) / len(confirmed)
+                avg_momentum = sum(l['momentum_strength'] for l in confirmed) / len(confirmed)
+                print(f"      Avg penetration: {avg_penetration:.2f}₹")
+                print(f"      Avg momentum strength: {avg_momentum:+.2f}₹")
             
-            if broken:
-                break_rate = (len(broken) / len(validated_levels)) * 100
-                print(f"   ❌ Broken levels: {len(broken)} ({break_rate:.0f}%)")
-                print(f"      Avg penetration (when broken): {sum(l['penetration_points'] for l in broken) / len(broken):.2f}₹")
+            if failed:
+                fail_rate = (len(failed) / len(validated_levels)) * 100
+                print(f"   ❌ Momentum Failed: {len(failed)} ({fail_rate:.0f}%)")
+                avg_penetration = sum(l['penetration_points'] for l in failed) / len(failed)
+                avg_momentum = sum(l['momentum_strength'] for l in failed) / len(failed)
+                print(f"      Avg penetration: {avg_penetration:.2f}₹")
+                print(f"      Avg momentum strength: {avg_momentum:+.2f}₹")
             
-            # High-confidence levels (held with no penetration)
-            clean_holds = [l for l in held if l['penetration_points'] < 2]
-            if clean_holds:
-                print(f"\n🏆 High-Confidence Levels (clean holds, <2₹ penetration):")
-                for level in clean_holds:
-                    print(f"   ₹{level['price']:.2f} ({level['side'].upper()}) - Peak Qty: {level['peak_qty']:,.0f}")
+            # Strong momentum breaks (penetration > 20 points)
+            strong_breaks = [l for l in validated_levels if l['penetration_points'] > 20]
+            if strong_breaks:
+                print(f"\n🚀 Strong Momentum Breaks (penetration > 20₹):")
+                for level in strong_breaks:
+                    status = "✅ Continued" if level['momentum_confirmed'] else "❌ Reversed"
+                    print(f"   ₹{level['price']:.2f} {level['side'].upper()} - Penetration: {level['penetration_points']:.2f}₹ - {status}")
         else:
             print("   No levels with valid test data")
     else:
