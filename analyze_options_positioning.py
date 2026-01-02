@@ -33,12 +33,12 @@ def get_nifty_options_expiries():
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     query = """
-    SELECT DISTINCT tradingsymbol
+    SELECT DISTINCT trading_symbol
     FROM instruments
-    WHERE tradingsymbol LIKE 'NIFTY%'
+    WHERE trading_symbol LIKE 'NIFTY%'
     AND instrument_type IN ('CE', 'PE')
     AND exchange = 'NFO'
-    ORDER BY tradingsymbol
+    ORDER BY trading_symbol
     """
     
     try:
@@ -47,7 +47,7 @@ def get_nifty_options_expiries():
         expiries = set()
         
         for row in results:
-            symbol = row['tradingsymbol']
+            symbol = row['trading_symbol']
             # Extract expiry from symbol (e.g., NIFTY26JAN23750CE -> 26JAN)
             if symbol:
                 # Remove 'NIFTY' prefix and 'CE'/'PE' suffix, then extract YYMMMSTRIKE
@@ -138,11 +138,11 @@ def analyze_options_positioning(expiry, cutoff_time=None):
     
     strikes_query = """
     SELECT DISTINCT 
-        tradingsymbol as trading_symbol,
+        trading_symbol,
         instrument_token,
         strike
     FROM instruments
-    WHERE tradingsymbol LIKE %s
+    WHERE trading_symbol LIKE %s
     AND instrument_type IN ('CE', 'PE')
     AND exchange = 'NFO'
     ORDER BY strike
