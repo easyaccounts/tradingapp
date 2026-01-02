@@ -80,56 +80,64 @@ def analyze_options_positioning(expiry, cutoff_time=None):
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     print(f"\n{'='*100}")
-    print(f"📊 OPTIONS POSITIONING ANALYSIS - NIFTY {expiry}")
+    print(f"📊 OPTIONS POSITIONING ANALYSIS - NIFTY {expiry.strftime('%Y-%m-%d')}")
     print(f"Analysis Time: {cutoff_time.strftime('%Y-%m-%d %H:%M:%S IST')}")
     print(f"{'='*100}\n")
     
-    # Get all strikes for this expiry from instruments table
-    strikes_query = """
+    # Get all NIFTY options tokens for this expiry
+    tokens_query = """
     SELECT DISTINCT 
-        trading_symbol,
         instrument_token,
-        strike
+        trading_symbol,
+        strike,
+        instrument_type,
+        segment
     FROM instruments
-    WHERE expiry = %s
-    AND trading_symbol LIKE %s
-    AND (instrument_type = %s OR instrument_type = %s)
-    AND exchange = %s
-    ORDER BY strike
+    WHERE segment = %s
+    AND name LIKE %s
+    AND expiry = %s
+    ORDER BY strike, instrument_type
     """
     
     try:
-        cursor.execute(strikes_query, (expiry, 'NIFTY%', 'CE', 'PE', 'NFO'))
-        strike_data = cursor.fetchall()
+        cursor.execute(tokens_query, ('NFO-OPT', 'NIFTY%', expiry))
+        token_data = cursor.fetchall()
         
-        if not strike_data:
+        if not token_data:
             print(f"❌ No options data found for expiry {expiry}")
+            cursor.close()
+            conn.close()
             return
         
-        # Group into calls and puts
-        call_data = {}
-        put_data = {}
+        # Separate calls and puts by instrument_token
+        call_tokens = {}  # {strike: instrument_token}
+        put_tokens = {}
         
-        for row in strike_data:
+        for row in token_data:
+            token = row['instrument_token']
             strike = row['strike']
             symbol = row['trading_symbol']
             
-            if symbol.endswith('CE'):
-                call_data[strike] = symbol
-            elif symbol.endswith('PE'):
-                put_data[strike] = symbol
+            if row['instrument_type'] == 'CE':
+                call_tokens[strike] = (token, symbol)
+            elif row['instrument_type'] == 'PE':
+                put_tokens[strike] = (token, symbol)
         
-        print(f"Found {len(call_data)} call strikes and {len(put_data)} put strikes\n")
+        print(f"Found {len(call_tokens)} call strikes and {len(put_tokens)} put strikes\n")
         
-        # Check if any tick data exists for these options today
+        # Check if any tick data exists for these tokens today
         check_query = """
         SELECT COUNT(*) as count
         FROM ticks
-        WHERE trading_symbol LIKE %s
-        AND time >= DATE_TRUNC('day', %s AT TIME ZONE 'Asia/Kolkata')
+        WHERE time >= DATE_TRUNC('day', %s AT TIME ZONE 'Asia/Kolkata')
+        AND (instrument_token = ANY(%s) OR instrument_token = ANY(%s))
         LIMIT 1
         """
-        cursor.execute(check_query, ('NIFTY%', cutoff_time))
+        
+        call_token_list = [t[0] for t in call_tokens.values()]
+        put_token_list = [t[0] for t in put_tokens.values()]
+        
+        cursor.execute(check_query, (cutoff_time, call_token_list, put_token_list))
         data_check = cursor.fetchone()
         
         if not data_check or data_check['count'] == 0:
@@ -144,27 +152,30 @@ def analyze_options_positioning(expiry, cutoff_time=None):
         print("🔵 CALLS ANALYSIS (CE)")
         print(f"{'='*100}\n")
         
-        analyze_option_type(conn, 'CE', call_data, cutoff_time)
+        analyze_option_type(conn, 'CE', call_tokens, cutoff_time)
         
         print(f"\n{'='*100}")
         print("🔴 PUTS ANALYSIS (PE)")
         print(f"{'='*100}\n")
         
-        analyze_option_type(conn, 'PE', put_data, cutoff_time)
+        analyze_option_type(conn, 'PE', put_tokens, cutoff_time)
         
         print(f"\n{'='*100}")
         print("📈 COMPARATIVE ANALYSIS")
         print(f"{'='*100}\n")
         
-        compare_call_put_positioning(conn, call_data, put_data, cutoff_time)
+        compare_call_put_positioning(conn, call_tokens, put_tokens, cutoff_time)
         
     finally:
         cursor.close()
         conn.close()
 
 
-def analyze_option_type(conn, option_type, strikes_dict, cutoff_time):
-    """Analyze OI and premium behavior for a specific option type"""
+def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
+    """Analyze OI and premium behavior for a specific option type
+    
+    tokens_dict: {strike: (instrument_token, trading_symbol)}
+    """
     
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -181,21 +192,21 @@ def analyze_option_type(conn, option_type, strikes_dict, cutoff_time):
     print(f"{'Strike':<10} {'OI Open':<12} {'OI Current':<12} {'OI Change':<14} {'Premium Open':<14} {'Premium Now':<14} {'Premium Δ':<12}")
     print("-"*100)
     
-    for strike in sorted(strikes_dict.keys()):
-        symbol = strikes_dict[strike]
+    for strike in sorted(tokens_dict.keys()):
+        token, symbol = tokens_dict[strike]
         
-        # Get opening tick (first tick after market open)
-        open_query = f"""
+        # Get opening tick (first tick after market open at 09:15)
+        open_query = """
         SELECT last_price, oi
         FROM ticks
-        WHERE trading_symbol = %s
+        WHERE instrument_token = %s
         AND time >= %s
         AND time < %s
         ORDER BY time ASC
         LIMIT 1
         """
         
-        cursor.execute(open_query, (symbol, market_open, market_open + timedelta(minutes=5)))
+        cursor.execute(open_query, (token, market_open, market_open + timedelta(minutes=5)))
         open_data = cursor.fetchone()
         
         if not open_data:
@@ -205,16 +216,16 @@ def analyze_option_type(conn, option_type, strikes_dict, cutoff_time):
         open_premium = float(open_data['last_price']) if open_data['last_price'] else 0
         
         # Get current tick (latest tick up to cutoff time)
-        current_query = f"""
+        current_query = """
         SELECT last_price, oi
         FROM ticks
-        WHERE trading_symbol = %s
+        WHERE instrument_token = %s
         AND time <= %s
         ORDER BY time DESC
         LIMIT 1
         """
         
-        cursor.execute(current_query, (symbol, cutoff_time))
+        cursor.execute(current_query, (token, cutoff_time))
         current_data = cursor.fetchone()
         
         if not current_data:
@@ -268,58 +279,64 @@ def analyze_option_type(conn, option_type, strikes_dict, cutoff_time):
     print(f"   Overall Premium Change: ₹{total_premium_change:+.2f}")
 
 
-def compare_call_put_positioning(conn, call_strikes, put_strikes, cutoff_time):
-    """Compare calls vs puts positioning"""
+def compare_call_put_positioning(conn, call_tokens, put_tokens, cutoff_time):
+    """Compare calls vs puts positioning
+    
+    call_tokens, put_tokens: {strike: (instrument_token, symbol)}
+    """
     
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     market_open = cutoff_time.replace(hour=9, minute=15, second=0, microsecond=0)
     
-    # Get aggregate OI for calls and puts
-    call_symbols = ','.join([f"'{s}'" for s in call_strikes.values()])
-    put_symbols = ','.join([f"'{s}'" for s in put_strikes.values()])
+    # Extract token lists for efficient querying
+    call_token_list = [t[0] for t in call_tokens.values()]
+    put_token_list = [t[0] for t in put_tokens.values()]
+    
+    if not call_token_list or not put_token_list:
+        return
     
     # Call OI at market open
-    call_open_query = f"""
+    call_open_query = """
     SELECT SUM(oi) as total_oi, AVG(last_price) as avg_premium
     FROM ticks
-    WHERE trading_symbol IN ({call_symbols})
+    WHERE instrument_token = ANY(%s)
     AND time >= %s AND time < %s
     """
     
-    cursor.execute(call_open_query, (market_open, market_open + timedelta(minutes=5)))
+    cursor.execute(call_open_query, (call_token_list, market_open, market_open + timedelta(minutes=5)))
     call_open = cursor.fetchone()
     
     # Call OI current
-    call_current_query = f"""
+    call_current_query = """
     SELECT SUM(oi) as total_oi, AVG(last_price) as avg_premium
     FROM ticks
-    WHERE trading_symbol IN ({call_symbols})
+    WHERE instrument_token = ANY(%s)
     AND time <= %s
     """
     
-    cursor.execute(call_current_query, (cutoff_time,))
+    cursor.execute(call_current_query, (call_token_list, cutoff_time))
     call_current = cursor.fetchone()
     
     # Put OI at market open
-    put_open_query = f"""
+    put_open_query = """
     SELECT SUM(oi) as total_oi, AVG(last_price) as avg_premium
     FROM ticks
-    WHERE trading_symbol IN ({put_symbols})
+    WHERE instrument_token = ANY(%s)
     AND time >= %s AND time < %s
     """
     
-    cursor.execute(put_open_query, (market_open, market_open + timedelta(minutes=5)))
+    cursor.execute(put_open_query, (put_token_list, market_open, market_open + timedelta(minutes=5)))
     put_open = cursor.fetchone()
     
     # Put OI current
-    put_current_query = f"""
+    put_current_query = """
     SELECT SUM(oi) as total_oi, AVG(last_price) as avg_premium
     FROM ticks
-    WHERE trading_symbol IN ({put_symbols})
+    WHERE instrument_token = ANY(%s)
     AND time <= %s
     """
     
-    cursor.execute(put_current_query, (cutoff_time,))
+    cursor.execute(put_current_query, (put_token_list, cutoff_time))
     put_current = cursor.fetchone()
     
     cursor.close()
