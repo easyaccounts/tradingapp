@@ -65,7 +65,7 @@ def analyze_level_lifecycle(signals):
     for record in signals:
         time = record['time'].astimezone(IST)
         price = float(record['current_price'])
-        levels = json.loads(record['key_levels']) if record['key_levels'] else []
+        levels = record['key_levels'] if record['key_levels'] else []
         
         for level in levels:
             key = (level['price'], level['side'])
@@ -132,7 +132,7 @@ def analyze_market_modes(signals):
     for i, record in enumerate(signals):
         time = record['time'].astimezone(IST)
         price = float(record['current_price'])
-        levels = json.loads(record['key_levels']) if record['key_levels'] else []
+        levels = record['key_levels'] if record['key_levels'] else []
         
         # Count fresh levels (age < 2 min) vs stale levels (tests > 10)
         fresh_levels = sum(1 for l in levels if l['age_seconds'] < 120)
