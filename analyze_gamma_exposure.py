@@ -161,10 +161,10 @@ def get_all_nifty_options_data(conn, expiry, cutoff_time=None):
             ROW_NUMBER() OVER (PARTITION BY i.instrument_token ORDER BY t.time DESC) as rn
         FROM instruments i
         JOIN ticks t ON i.instrument_token = t.instrument_token
-        WHERE i.segment = 'NFO-OPT'
-        AND i.name LIKE 'NIFTY%'
+        WHERE i.segment = %s
+        AND i.name LIKE %s
         AND i.expiry = %s
-        AND i.exchange = 'NFO'
+        AND i.exchange = %s
         AND t.time <= %s
     )
     SELECT *
@@ -174,7 +174,7 @@ def get_all_nifty_options_data(conn, expiry, cutoff_time=None):
     """
     
     try:
-        cursor.execute(query, (expiry, cutoff_utc))
+        cursor.execute(query, ('NFO-OPT', 'NIFTY%', expiry, 'NFO', cutoff_utc))
         return cursor.fetchall()
     finally:
         cursor.close()
