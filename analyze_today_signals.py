@@ -94,6 +94,42 @@ def analyze_level_lifecycle(signals):
     return level_history
 
 
+def find_pressure_threshold_crossings(signals):
+    """Find price levels where 30s pressure crosses ±0.3 thresholds"""
+    crossings = []
+    prev_pressure_30s = None
+    
+    for record in signals:
+        time = record['time'].astimezone(IST)
+        price = float(record['current_price'])
+        pressure_30s = float(record['pressure_30s']) if record['pressure_30s'] else 0
+        
+        if prev_pressure_30s is not None:
+            # Check for crossing above 0.3 (bullish threshold)
+            if prev_pressure_30s <= 0.3 and pressure_30s > 0.3:
+                crossings.append({
+                    'type': 'bullish_breakout',
+                    'time': time,
+                    'price': price,
+                    'pressure': pressure_30s,
+                    'direction': '↑ BULLISH THRESHOLD CROSSED'
+                })
+            
+            # Check for crossing below -0.3 (bearish threshold)
+            elif prev_pressure_30s >= -0.3 and pressure_30s < -0.3:
+                crossings.append({
+                    'type': 'bearish_breakout',
+                    'time': time,
+                    'price': price,
+                    'pressure': pressure_30s,
+                    'direction': '↓ BEARISH THRESHOLD CROSSED'
+                })
+        
+        prev_pressure_30s = pressure_30s
+    
+    return crossings
+
+
 def validate_threshold_signals(signals):
     """Validate if price actually reverses at threshold crossings"""
     crossings = find_pressure_threshold_crossings(signals)
