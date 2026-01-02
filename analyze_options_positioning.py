@@ -185,129 +185,83 @@ def analyze_options_positioning(expiry, cutoff_time=None):
 
 
 def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
-    """Analyze OI and premium behavior for a specific option type
+    """Analyze OI and premium behavior for a specific option type in 5-minute intervals
     
     tokens_dict: {strike: (instrument_token, trading_symbol)}
     """
     
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Get the start of the day and market open time
-    market_start = cutoff_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    market_open = cutoff_time.replace(hour=9, minute=15, second=0, microsecond=0)
+    # Get the start of the day
+    market_start = cutoff_time.replace(hour=9, minute=15, second=0, microsecond=0)
     
-    total_oi_open = 0
-    total_oi_current = 0
-    total_premium_open = 0
-    total_premium_current = 0
-    premium_status = []
-    oi_status = []
+    # Extract all tokens
+    all_tokens = [t[0] for t in tokens_dict.values()]
     
-    # Collect all strike data first
-    strike_data = []
+    # Query aggregated data in 5-minute intervals
+    interval_query = """
+    SELECT 
+        DATE_TRUNC('minute', time) - 
+        (EXTRACT(MINUTE FROM time)::int % 5) * INTERVAL '1 minute' as interval_start,
+        SUM(oi) as total_oi,
+        AVG(last_price) as avg_premium,
+        COUNT(DISTINCT instrument_token) as token_count
+    FROM ticks
+    WHERE instrument_token = ANY(%s)
+    AND time >= %s
+    AND time <= %s
+    GROUP BY interval_start
+    ORDER BY interval_start
+    """
     
-    for strike in sorted(tokens_dict.keys()):
-        token, symbol = tokens_dict[strike]
-        
-        # Get opening tick - first tick of the day
-        open_query = """
-        SELECT last_price, oi
-        FROM ticks
-        WHERE instrument_token = %s
-        AND time >= %s
-        AND time < %s
-        ORDER BY time ASC
-        LIMIT 1
-        """
-        
-        cursor.execute(open_query, (token, market_start, cutoff_time))
-        open_data = cursor.fetchone()
-        
-        if not open_data:
-            continue
-        
-        open_oi = open_data['oi'] or 0
-        open_premium = float(open_data['last_price']) if open_data['last_price'] else 0
-        
-        # Get current tick (latest tick up to cutoff time)
-        current_query = """
-        SELECT last_price, oi
-        FROM ticks
-        WHERE instrument_token = %s
-        AND time <= %s
-        ORDER BY time DESC
-        LIMIT 1
-        """
-        
-        cursor.execute(current_query, (token, cutoff_time))
-        current_data = cursor.fetchone()
-        
-        if not current_data:
-            continue
-        
-        current_oi = current_data['oi'] or 0
-        current_premium = float(current_data['last_price']) if current_data['last_price'] else 0
+    cursor.execute(interval_query, (all_tokens, market_start, cutoff_time))
+    intervals = cursor.fetchall()
+    
+    if not intervals:
+        print("No data found for this option type\n")
+        cursor.close()
+        return
+    
+    print(f"{'Time':<20} {'Total OI':<15} {'OI Change':<15} {'Avg Premium':<15} {'Premium Δ':<15}")
+    print("-" * 80)
+    
+    prev_oi = None
+    prev_premium = None
+    
+    for row in intervals:
+        interval_time = row['interval_start']
+        total_oi = row['total_oi'] or 0
+        avg_premium = float(row['avg_premium']) if row['avg_premium'] else 0
         
         # Calculate changes
-        oi_change = current_oi - open_oi
-        oi_change_pct = (oi_change / open_oi * 100) if open_oi > 0 else 0
-        premium_change = current_premium - open_premium
+        oi_change = (total_oi - prev_oi) if prev_oi is not None else 0
+        oi_change_pct = ((oi_change / prev_oi) * 100) if prev_oi and prev_oi > 0 else 0
+        premium_change = (avg_premium - prev_premium) if prev_premium is not None else 0
         
-        strike_data.append({
-            'strike': strike,
-            'open_oi': open_oi,
-            'current_oi': current_oi,
-            'oi_change': oi_change,
-            'oi_change_pct': oi_change_pct,
-            'open_premium': open_premium,
-            'current_premium': current_premium,
-            'premium_change': premium_change
-        })
+        time_str = interval_time.strftime('%H:%M')
+        print(f"{time_str:<20} {total_oi:<14,} {oi_change:>+13,} ({oi_change_pct:>5.1f}%) {avg_premium:>13.2f}₹ {premium_change:>+13.2f}₹")
         
-        # Accumulate totals
-        total_oi_open += open_oi
-        total_oi_current += current_oi
-        total_premium_open += open_premium
-        total_premium_current += current_premium
+        prev_oi = total_oi
+        prev_premium = avg_premium
+    
+    # Print summary
+    if len(intervals) > 0:
+        first = intervals[0]
+        last = intervals[-1]
+        total_oi_change = (last['total_oi'] or 0) - (first['total_oi'] or 0)
+        total_oi_change_pct = ((total_oi_change / first['total_oi']) * 100) if first['total_oi'] and first['total_oi'] > 0 else 0
+        avg_premium_change = (float(last['avg_premium']) if last['avg_premium'] else 0) - (float(first['avg_premium']) if first['avg_premium'] else 0)
         
-        # Store status
-        oi_status.append((strike, oi_change > 0))
-        premium_status.append((strike, premium_change > 0))
+        print("-" * 80)
+        print(f"\n📊 {option_type} Summary:")
+        print(f"   Opening OI: {first['total_oi'] or 0:,}")
+        print(f"   Current OI: {last['total_oi'] or 0:,}")
+        print(f"   Total OI Change: {total_oi_change:+,} ({total_oi_change_pct:+.1f}%)")
+        print(f"   Opening Avg Premium: ₹{float(first['avg_premium']) if first['avg_premium'] else 0:.2f}")
+        print(f"   Current Avg Premium: ₹{float(last['avg_premium']) if last['avg_premium'] else 0:.2f}")
+        print(f"   Avg Premium Change: ₹{avg_premium_change:+.2f}")
     
-    # Sort by OI change percentage (descending)
-    strike_data.sort(key=lambda x: x['oi_change_pct'], reverse=True)
-    
-    # Print sorted data
-    print(f"{'Strike':<10} {'OI Open':<12} {'OI Current':<12} {'OI Change':<14} {'Premium Open':<14} {'Premium Now':<14} {'Premium Δ':<12}")
-    print("-"*100)
-    
-    for data in strike_data:
-        print(f"{data['strike']:<10} {data['open_oi']:<11,} {data['current_oi']:<11,} {data['oi_change']:>+10,} ({data['oi_change_pct']:>5.1f}%) {data['open_premium']:>13.2f}₹ {data['current_premium']:>13.2f}₹ {data['premium_change']:>+10.2f}₹")
-    
-    
-    # Summary
-    total_oi_change = total_oi_current - total_oi_open
-    total_oi_change_pct = (total_oi_change / total_oi_open * 100) if total_oi_open > 0 else 0
-    total_premium_change = total_premium_current - total_premium_open
-    
-    print("-"*100)
-    print(f"{'TOTAL':<10} {total_oi_open:<11,} {total_oi_current:<11,} {total_oi_change:>+10,} ({total_oi_change_pct:>5.1f}%) {total_premium_open:>13.2f}₹ {total_premium_current:>13.2f}₹ {total_premium_change:>+10.2f}₹")
-    
-    # Analysis summary
-    print(f"\n📊 {option_type} Summary:")
-    increasing_oi = sum(1 for _, inc in oi_status if inc)
-    decreasing_oi = len(oi_status) - increasing_oi
-    
-    increasing_premium = sum(1 for _, inc in premium_status if inc)
-    decreasing_premium = len(premium_status) - increasing_oi
-    
-    print(f"   OI Increasing: {increasing_oi}/{len(oi_status)} strikes")
-    print(f"   OI Decreasing: {decreasing_oi}/{len(oi_status)} strikes")
-    print(f"   Overall OI Change: {total_oi_change:+,} ({total_oi_change_pct:+.1f}%)")
-    
-    print(f"   Premium Appreciating: {increasing_premium}/{len(premium_status)} strikes")
-    print(f"   Premium Decaying: {decreasing_premium}/{len(premium_status)} strikes")
-    print(f"   Overall Premium Change: ₹{total_premium_change:+.2f}")
+    cursor.close()
 
 
 def compare_call_put_positioning(conn, call_tokens, put_tokens, cutoff_time):
