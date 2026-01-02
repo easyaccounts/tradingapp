@@ -207,16 +207,25 @@ def main():
             dhan_instruments = []
             for token, info in instruments_cache.items():
                 if info.security_id and info.source == 'dhan':
-                    # Map exchange to Dhan exchange segment
-                    exchange_map = {
-                        'NSE': 0,  # NSE_EQ
-                        'NFO': 1,  # NSE_FNO
-                        'BSE': 3,  # BSE_EQ
-                        'BFO': 4,  # BSE_FNO
-                        'MCX': 6,  # MCX_COM
-                        'CDS': 7,  # NSE_CURRENCY
-                    }
-                    exchange_segment = exchange_map.get(info.exchange, 1)  # Default to NFO
+                    # Map exchange to Dhan exchange segment based on exchange AND instrument_type
+                    # NSE has both equity (0) and F&O (1) segments
+                    if info.exchange == 'NSE':
+                        # Options and Futures trade on NSE F&O (segment 1)
+                        if info.instrument_type in ('CE', 'PE', 'FUT'):
+                            exchange_segment = 1  # NSE_FNO
+                        else:
+                            exchange_segment = 0  # NSE_EQ
+                    elif info.exchange == 'BSE':
+                        if info.instrument_type in ('CE', 'PE', 'FUT'):
+                            exchange_segment = 4  # BSE_FNO
+                        else:
+                            exchange_segment = 3  # BSE_EQ
+                    elif info.exchange == 'MCX':
+                        exchange_segment = 6  # MCX_COM
+                    elif info.exchange in ('CDS', 'BCD'):
+                        exchange_segment = 7  # NSE_CURRENCY or BCD
+                    else:
+                        exchange_segment = 1  # Default to NSE_FNO
                     
                     dhan_instruments.append({
                         'security_id': info.security_id,
