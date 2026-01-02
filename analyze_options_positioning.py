@@ -33,59 +33,24 @@ def get_nifty_options_expiries():
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     query = """
-    SELECT DISTINCT trading_symbol
+    SELECT DISTINCT expiry
     FROM instruments
     WHERE trading_symbol LIKE 'NIFTY%'
     AND instrument_type IN ('CE', 'PE')
     AND exchange = 'NFO'
-    ORDER BY trading_symbol
+    AND expiry IS NOT NULL
+    AND expiry >= CURRENT_DATE
+    ORDER BY expiry
     """
     
     try:
         cursor.execute(query)
         results = cursor.fetchall()
-        expiries = set()
-        
-        for row in results:
-            symbol = row['trading_symbol']
-            # Extract expiry from symbol (e.g., NIFTY26JAN23750CE -> 26JAN)
-            if symbol:
-                # Remove 'NIFTY' prefix and 'CE'/'PE' suffix, then extract YYMMMSTRIKE
-                import re
-                match = re.match(r'NIFTY(\d{2}\w{3})\d+[CP]E', symbol)
-                if match:
-                    expiries.add(match.group(1))
-        
-        return sorted(expiries)
+        expiries = [row['expiry'] for row in results]
+        return expiries
     finally:
         cursor.close()
         conn.close()
-
-
-def parse_expiry_date(expiry_str):
-    """Parse expiry string into sortable date. Format: YYMMMSTRIKE (e.g., 26JAN23750)"""
-    import re
-    from datetime import datetime
-    
-    # Extract date pattern: YYMMMSTRIKE
-    match = re.match(r'(\d{2})(\w{3})', expiry_str)
-    if not match:
-        return None
-    
-    year_str, month_str = match.groups()
-    
-    try:
-        # Map month abbreviations
-        months = {'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
-                  'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12}
-        month = months[month_str]
-        year = 2000 + int(year_str)  # 26 -> 2026
-        
-        # Expiry is typically last Thursday of the month, use day 25 as approximation
-        date = datetime(year, month, 25)
-        return date
-    except (ValueError, KeyError):
-        return None
 
 
 def get_immediate_expiry():
@@ -96,25 +61,11 @@ def get_immediate_expiry():
         print("❌ No NIFTY options found in database")
         return None
     
-    print(f"Found {len(expiries)} expiries. Parsing dates...")
+    print(f"Found {len(expiries)} future expiries")
     
-    # Parse and sort expiries by date
-    parsed = []
-    today = datetime.now(IST).date()
-    
-    for exp in expiries:
-        parsed_date = parse_expiry_date(exp)
-        if parsed_date and parsed_date.date() >= today:  # Only future expiries
-            parsed.append((parsed_date, exp))
-    
-    if not parsed:
-        print("❌ No future expiry dates found")
-        return None
-    
-    # Sort by date and return the immediate (nearest future) one
-    parsed.sort(key=lambda x: x[0])
-    immediate_expiry = parsed[0][1]
-    print(f"Immediate expiry selected: {immediate_expiry} ({parsed[0][0].strftime('%Y-%m-%d')})")
+    # Return the first one (already sorted by date, future only)
+    immediate_expiry = expiries[0]
+    print(f"Immediate expiry selected: {immediate_expiry}")
     
     return immediate_expiry
 
@@ -134,22 +85,21 @@ def analyze_options_positioning(expiry, cutoff_time=None):
     print(f"{'='*100}\n")
     
     # Get all strikes for this expiry from instruments table
-    nifty_pattern = f'NIFTY{expiry}%'
-    
     strikes_query = """
     SELECT DISTINCT 
         trading_symbol,
         instrument_token,
         strike
     FROM instruments
-    WHERE trading_symbol LIKE %s
+    WHERE expiry = %s
+    AND trading_symbol LIKE 'NIFTY%'
     AND instrument_type IN ('CE', 'PE')
     AND exchange = 'NFO'
     ORDER BY strike
     """
     
     try:
-        cursor.execute(strikes_query, (nifty_pattern,))
+        cursor.execute(strikes_query, (expiry,))
         strike_data = cursor.fetchall()
         
         if not strike_data:
@@ -310,47 +260,45 @@ def compare_call_put_positioning(conn, call_strikes, put_strikes, cutoff_time):
     call_symbols = ','.join([f"'{s}'" for s in call_strikes.values()])
     put_symbols = ','.join([f"'{s}'" for s in put_strikes.values()])
     
-    # Call OI
+    # Call OI at market open
     call_open_query = f"""
     SELECT SUM(oi) as total_oi, AVG(last_price) as avg_premium
     FROM ticks
     WHERE trading_symbol IN ({call_symbols})
     AND time >= %s AND time < %s
-    ORDER BY time ASC LIMIT 1
     """
     
     cursor.execute(call_open_query, (market_open, market_open + timedelta(minutes=5)))
     call_open = cursor.fetchone()
     
+    # Call OI current
     call_current_query = f"""
     SELECT SUM(oi) as total_oi, AVG(last_price) as avg_premium
     FROM ticks
     WHERE trading_symbol IN ({call_symbols})
     AND time <= %s
-    ORDER BY time DESC LIMIT 1
     """
     
     cursor.execute(call_current_query, (cutoff_time,))
     call_current = cursor.fetchone()
     
-    # Put OI
+    # Put OI at market open
     put_open_query = f"""
     SELECT SUM(oi) as total_oi, AVG(last_price) as avg_premium
     FROM ticks
     WHERE trading_symbol IN ({put_symbols})
     AND time >= %s AND time < %s
-    ORDER BY time ASC LIMIT 1
     """
     
     cursor.execute(put_open_query, (market_open, market_open + timedelta(minutes=5)))
     put_open = cursor.fetchone()
     
+    # Put OI current
     put_current_query = f"""
     SELECT SUM(oi) as total_oi, AVG(last_price) as avg_premium
     FROM ticks
     WHERE trading_symbol IN ({put_symbols})
     AND time <= %s
-    ORDER BY time DESC LIMIT 1
     """
     
     cursor.execute(put_current_query, (cutoff_time,))
