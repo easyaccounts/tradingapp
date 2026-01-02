@@ -3,6 +3,8 @@
 Calculate Net Gamma Exposure (GEX) for NIFTY options
 Tracks how much dealers are forced to hedge and in which direction
 Helps identify trending vs mean-reversion market environments
+
+Uses Black-Scholes model with IV extracted from market premiums
 """
 
 import os
@@ -13,6 +15,8 @@ from psycopg2.extras import RealDictCursor
 import pytz
 from dotenv import load_dotenv
 from kiteconnect import KiteConnect
+from scipy.stats import norm
+from scipy.optimize import brentq
 
 # Load environment
 load_dotenv()
@@ -31,6 +35,11 @@ IST = pytz.timezone('Asia/Kolkata')
 # KiteConnect config
 KITE_API_KEY = os.getenv('KITE_API_KEY')
 NIFTY_TOKEN = 256265  # NIFTY 50 index token
+
+# Indian market parameters
+RISK_FREE_RATE = 0.065  # ~6.5% RBI repo rate (adjust as needed)
+MIN_IV = 0.001
+MAX_IV = 2.0  # 200% IV (for extreme volatility)
 
 
 def get_immediate_expiry(conn):
@@ -181,47 +190,100 @@ def get_all_nifty_options_data(conn, expiry, cutoff_time=None):
 
 
 def calculate_gamma_approximation(distance_from_atm_points, time_to_expiry_days, iv=0.15):
-    """
-    Simplified gamma calculation using Gaussian approximation
-    
-    Gamma peaks at ATM and decays as we move away
-    Increases as time to expiry decreases
-    Increases with IV
-    
-    Args:
-        distance_from_atm_points: How far from ATM (in points)
-        time_to_expiry_days: Days until expiration
-        iv: Implied volatility (0.15 = 15%)
-    
-    Returns:
-        gamma_value: Normalized gamma value (0-1 scale)
-    """
-    
-    # ATM gamma peak increases as expiry nears
+    """Deprecated: Use calculate_gamma_blackscholes instead"""
+    # Kept for backward compatibility
     if time_to_expiry_days <= 0:
         time_factor = 1.0
     else:
         time_factor = 1.0 / math.sqrt(time_to_expiry_days)
     
-    # IV impact: higher IV = wider distribution = lower ATM gamma
     iv_factor = 0.15 / iv if iv > 0 else 1.0
-    
-    # Distance decay: Gaussian curve
-    # Normalize distance by ATM straddle width
     normalized_distance = distance_from_atm_points / (100 * iv_factor)
-    
-    # Gaussian bell curve centered at 0 (ATM)
     gamma_at_distance = math.exp(-0.5 * (normalized_distance ** 2))
-    
-    # Combine time and distance effects
     gamma = gamma_at_distance * time_factor * iv_factor
     
-    return max(0.0, min(1.0, gamma))  # Clamp to 0-1
+    return max(0.0, min(1.0, gamma))
+
+
+def black_scholes_call(spot, strike, time_to_expiry_years, risk_free_rate, volatility):
+    """Black-Scholes call option pricing"""
+    
+    if time_to_expiry_years <= 0:
+        return max(spot - strike, 0)
+    
+    d1 = (math.log(spot / strike) + (risk_free_rate + 0.5 * volatility**2) * time_to_expiry_years) / (volatility * math.sqrt(time_to_expiry_years))
+    d2 = d1 - volatility * math.sqrt(time_to_expiry_years)
+    
+    call_price = spot * norm.cdf(d1) - strike * math.exp(-risk_free_rate * time_to_expiry_years) * norm.cdf(d2)
+    
+    return call_price
+
+
+def black_scholes_put(spot, strike, time_to_expiry_years, risk_free_rate, volatility):
+    """Black-Scholes put option pricing"""
+    
+    if time_to_expiry_years <= 0:
+        return max(strike - spot, 0)
+    
+    d1 = (math.log(spot / strike) + (risk_free_rate + 0.5 * volatility**2) * time_to_expiry_years) / (volatility * math.sqrt(time_to_expiry_years))
+    d2 = d1 - volatility * math.sqrt(time_to_expiry_years)
+    
+    put_price = strike * math.exp(-risk_free_rate * time_to_expiry_years) * norm.cdf(-d2) - spot * norm.cdf(-d1)
+    
+    return put_price
+
+
+def black_scholes_gamma(spot, strike, time_to_expiry_years, risk_free_rate, volatility):
+    """Black-Scholes gamma (delta change per 1 point spot move)"""
+    
+    if time_to_expiry_years <= 0 or volatility == 0:
+        return 0
+    
+    d1 = (math.log(spot / strike) + (risk_free_rate + 0.5 * volatility**2) * time_to_expiry_years) / (volatility * math.sqrt(time_to_expiry_years))
+    
+    # Gamma = pdf(d1) / (S × σ × √T)
+    gamma = norm.pdf(d1) / (spot * volatility * math.sqrt(time_to_expiry_years))
+    
+    return gamma
+
+
+def extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, option_type, risk_free_rate=RISK_FREE_RATE):
+    """Extract IV from market premium using Black-Scholes solver"""
+    
+    if market_price <= 0 or time_to_expiry_years <= 0:
+        return 0.15
+    
+    if option_type == 'CE':
+        pricing_fn = lambda iv: black_scholes_call(spot, strike, time_to_expiry_years, risk_free_rate, iv) - market_price
+    else:
+        pricing_fn = lambda iv: black_scholes_put(spot, strike, time_to_expiry_years, risk_free_rate, iv) - market_price
+    
+    try:
+        if pricing_fn(MIN_IV) * pricing_fn(MAX_IV) > 0:
+            return 0.15
+        
+        iv = brentq(pricing_fn, MIN_IV, MAX_IV, xtol=1e-6)
+        return max(MIN_IV, min(MAX_IV, iv))
+    
+    except:
+        return 0.15
+
+
+def calculate_gamma_blackscholes(spot, strike, time_to_expiry_years, market_price, option_type, risk_free_rate=RISK_FREE_RATE):
+    """Calculate Black-Scholes gamma by extracting IV from market premium"""
+    
+    if time_to_expiry_years <= 0 or market_price <= 0:
+        return 0.0, 0.15
+    
+    iv = extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, option_type, risk_free_rate)
+    gamma = black_scholes_gamma(spot, strike, time_to_expiry_years, risk_free_rate, iv)
+    
+    return gamma, iv
 
 
 def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
     """
-    Calculate Net Gamma Exposure across all strikes
+    Calculate Net Gamma Exposure using Black-Scholes gamma
     
     GEX = Sum of (OI × Gamma × Side)
     - Negative GEX = Dealers SHORT gamma (trending environment)
@@ -229,43 +291,60 @@ def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
     """
     
     current_date = datetime.now(IST).date()
-    time_to_expiry = (expiry_date - current_date).days
+    days_to_expiry = (expiry_date - current_date).days
+    years_to_expiry = max(days_to_expiry / 365.0, 1/365.0)  # At least 1/365 year
     
     total_gex = 0.0
     strike_gammas = {}
+    iv_levels = {}
     
     for option in options_data:
         strike = float(option['strike'])
         oi = int(option['oi'])
+        premium = float(option['last_price'])
         instrument_type = option['instrument_type']
         
-        # Calculate distance from spot (in points)
-        distance = abs(strike - spot_price)
+        try:
+            # Calculate gamma using Black-Scholes with extracted IV
+            gamma, iv = calculate_gamma_blackscholes(
+                spot=spot_price,
+                strike=strike,
+                time_to_expiry_years=years_to_expiry,
+                market_price=premium,
+                option_type=instrument_type,
+                risk_free_rate=RISK_FREE_RATE
+            )
+            
+            # Store for detailed breakdown
+            strike_key = f"{strike:.0f}{instrument_type}"
+            strike_gammas[strike_key] = {
+                'gamma': gamma,
+                'oi': oi,
+                'premium': premium,
+                'iv': iv,
+                'type': instrument_type,
+                'distance': abs(strike - spot_price)
+            }
+            
+            # Track IV levels
+            if strike not in iv_levels:
+                iv_levels[strike] = []
+            iv_levels[strike].append(iv)
+            
+            # GEX contribution: OI × Gamma
+            # Negative because dealers are typically short options
+            if instrument_type == 'CE':
+                contribution = -oi * gamma
+            else:  # PE
+                contribution = -oi * gamma
+            
+            total_gex += contribution
         
-        # Calculate gamma for this strike
-        gamma = calculate_gamma_approximation(distance, time_to_expiry)
-        
-        # Store for detailed breakdown
-        strike_gammas[f"{strike:.0f}{instrument_type}"] = {
-            'gamma': gamma,
-            'oi': oi,
-            'distance': distance,
-            'type': instrument_type
-        }
-        
-        # GEX calculation
-        # Calls: Dealers short calls = negative exposure (use -OI)
-        # Puts: Dealers short puts = negative exposure (use -OI)
-        # Both create negative GEX when ATM (dealers forced to hedge against moves)
-        
-        if instrument_type == 'CE':
-            contribution = -oi * gamma  # Dealers typically short calls
-        else:  # PE
-            contribution = -oi * gamma  # Dealers typically short puts
-        
-        total_gex += contribution
+        except Exception as e:
+            # Skip strikes with calculation errors
+            continue
     
-    return total_gex, strike_gammas
+    return total_gex, strike_gammas, iv_levels
 
 
 def get_gex_interpretation(gex_value, abs_threshold=300):
@@ -356,7 +435,7 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None):
         print(f"📊 Processing {len(options_data)} option contracts...\n")
         
         # Calculate net gamma exposure
-        gex, strike_gammas = calculate_net_gamma_exposure(options_data, spot_price, expiry)
+        gex, strike_gammas, iv_levels = calculate_net_gamma_exposure(options_data, spot_price, expiry)
         
         # Get interpretation
         interpretation = get_gex_interpretation(gex)
@@ -372,9 +451,9 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None):
         for implication in interpretation['implications']:
             print(f"  {implication}")
         
-        # Detailed breakdown by strike
+        # Detailed breakdown by strike with IV
         print(f"\n{'─'*100}")
-        print(f"GAMMA CONCENTRATION BY STRIKE")
+        print(f"GAMMA & IV ANALYSIS BY STRIKE")
         print(f"{'─'*100}\n")
         
         # Group by strike
@@ -390,7 +469,7 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None):
                 strikes_data[strike]['puts'] = gamma_info
         
         # Find highest gamma concentrations
-        print(f"{'Strike':<10} {'Distance':<12} {'Call Gamma':<15} {'Put Gamma':<15} {'Combined OI':<15}")
+        print(f"{'Strike':<10} {'Distance':<12} {'Call Gamma':<12} {'Call IV':<10} {'Put Gamma':<12} {'Put IV':<10} {'OI':<15}")
         print(f"{'─'*100}")
         
         for strike_str in sorted(strikes_data.keys(), key=lambda x: float(x)):
@@ -398,7 +477,9 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None):
             strike_info = strikes_data[strike_str]
             
             call_gamma = strike_info['calls'].get('gamma', 0)
+            call_iv = strike_info['calls'].get('iv', 0)
             put_gamma = strike_info['puts'].get('gamma', 0)
+            put_iv = strike_info['puts'].get('iv', 0)
             call_oi = strike_info['calls'].get('oi', 0)
             put_oi = strike_info['puts'].get('oi', 0)
             
@@ -410,8 +491,9 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None):
             else:
                 marker = ""
             
-            print(f"{strike:>9.0f} {distance:>11.0f}pt " 
-                  f"{call_gamma:>14.3f} {put_gamma:>14.3f} "
+            print(f"{strike:>9.0f} {distance:>11.0f}pt "
+                  f"{call_gamma:>11.6f} {call_iv*100:>9.2f}% "
+                  f"{put_gamma:>11.6f} {put_iv*100:>9.2f}% "
                   f"{(call_oi + put_oi):>14,.0f}{marker}")
         
         # Summary statistics
@@ -424,8 +506,13 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None):
         total_oi = sum(og['oi'] for og in strike_gammas.values())
         atm_oi = sum(og['oi'] for og in atm_range)
         
+        # Average IVs
+        all_ivs = [og['iv'] for og in strike_gammas.values() if og.get('iv', 0) > 0]
+        avg_iv = sum(all_ivs) / len(all_ivs) if all_ivs else 0.15
+        
         print(f"Total Options OI: {total_oi:,} lots")
         print(f"ATM (±100pt) OI: {atm_oi:,} lots ({100*atm_oi/total_oi:.1f}%)")
+        print(f"Average Market IV: {avg_iv*100:.2f}%")
         print(f"Gamma Concentration: {'High (tight range)' if atm_oi/total_oi > 0.6 else 'Dispersed'}")
         print(f"Likely Expiry Behavior: {'Pin to ATM strikes' if atm_oi/total_oi > 0.6 else 'Range-dependent'}")
         
