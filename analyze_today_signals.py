@@ -435,20 +435,6 @@ def print_report(signals):
     print(f"💰 Price: ₹{start_price:.2f} → ₹{end_price:.2f} ({end_price - start_price:+.2f})")
     print(f"📈 Total signals: {len(signals)}\n")
     
-    # DEBUG: Show sample level structure
-    print("="*90)
-    print("🔍 DEBUG: Sample Level Structure")
-    print("="*90)
-    
-    for record in signals[:3]:
-        levels = record['key_levels'] if record['key_levels'] else []
-        if levels:
-            time = record['time'].astimezone(IST)
-            print(f"\nSignal at {time.strftime('%H:%M:%S')}:")
-            print(f"  Available keys in level: {list(levels[0].keys())}")
-            print(f"  Sample level: {levels[0]}")
-            break
-    
     # FIND HIGH-QTY LEVELS
     print("\n" + "="*90)
     print("🎯 KEY LEVELS WITH PEAK/AVG QTY > 15k")
@@ -457,7 +443,14 @@ def print_report(signals):
     high_qty_levels = find_high_qty_levels(signals)
     
     if high_qty_levels:
-        print(f"\nIdentified {len(high_qty_levels)} high-quantity levels\n")
+        print(f"\nIdentified {len(high_qty_levels)} high-quantity levels")
+        
+        # DEBUG: Show the levels found
+        print(f"\nDebug - High Qty Levels Found:")
+        for (price, side), level_info in list(high_qty_levels.items())[:3]:
+            print(f"  ₹{price} ({side}): peak_qty={level_info['peak_qty']}, avg_qty={level_info['avg_qty']}")
+        
+        print(f"\nValidating if levels hold...\n")
         
         # Validate if they hold
         validated_levels = validate_level_holds(signals, high_qty_levels)
@@ -469,15 +462,14 @@ def print_report(signals):
             ask_levels = sorted([l for l in validated_levels if l['side'] == 'ask'], 
                                key=lambda x: x['price'])
             
-            print(f"{'Level':<10} {'Side':<6} {'Peak Qty':<12} {'Avg Qty':<12} {'Tests':<8} {'Held?':<8} {'Penetration':<14}")
-            print("-"*90)
+            print(f"{'Level':<12} {'Side':<8} {'Peak Qty':<12} {'Avg Qty':<12} {'Tests':<8} {'Held?':<12} {'Penetration':<12}")
+            print("-"*95)
             
             for level in bid_levels + ask_levels:
-                icon = "📍" if level['level_held'] else "❌"
-                side_icon = "🔵" if level['side'] == 'bid' else "🔴"
-                held_text = "✅ YES" if level['level_held'] else f"NO ({level['penetration_points']:.2f}₹)"
+                side_text = "BID (S)" if level['side'] == 'bid' else "ASK (R)"
+                held_text = "✅ YES" if level['level_held'] else f"❌ {level['penetration_points']:.1f}₹"
                 
-                print(f"₹{level['price']:<9.2f} {side_icon} Bid   {level['peak_qty']:<11,.0f} {level['avg_qty']:<11,.0f} {level['tests']:<7} {held_text:<13} {level['penetration_points']:<14.2f}")
+                print(f"₹{level['price']:<11.2f} {side_text:<8} {level['peak_qty']:<11,.0f} {level['avg_qty']:<11,.0f} {level['tests']:<7} {held_text:<12} {level['penetration_points']:<11.2f}")
             
             # Summary statistics
             print("\n📊 Level Hold Statistics:")
