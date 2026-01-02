@@ -59,6 +59,35 @@ def get_nifty_options_expiries():
         conn.close()
 
 
+def parse_expiry_date(expiry_str):
+    """Parse expiry string into sortable date. Handles formats like 25DEC16000, 26JAN23750"""
+    import re
+    from datetime import datetime
+    
+    # Try to extract date pattern: DDMMMYY or DDMMMYYYY
+    match = re.match(r'(\d{2})(\w{3})(\d{2,4})', expiry_str)
+    if not match:
+        return None
+    
+    day, month_str, year_str = match.groups()
+    
+    try:
+        # Map month abbreviations
+        months = {'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+                  'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12}
+        month = months[month_str]
+        
+        # Handle 2-digit vs 4-digit year
+        year = int(year_str)
+        if year < 100:
+            year += 2000 if year >= 20 else 2100  # Adjust century
+        
+        date = datetime(year, month, int(day))
+        return date
+    except (ValueError, KeyError):
+        return None
+
+
 def get_immediate_expiry():
     """Get the immediate (nearest) NIFTY expiry"""
     expiries = get_nifty_options_expiries()
@@ -67,10 +96,27 @@ def get_immediate_expiry():
         print("❌ No NIFTY options found in database")
         return None
     
-    print(f"Available expiries: {expiries}")
+    print(f"Found {len(expiries)} expiries. Parsing dates...")
     
-    # The first one should be the immediate expiry
-    return expiries[0] if expiries else None
+    # Parse and sort expiries by date
+    parsed = []
+    today = datetime.now(IST).date()
+    
+    for exp in expiries:
+        parsed_date = parse_expiry_date(exp)
+        if parsed_date and parsed_date.date() >= today:  # Only future expiries
+            parsed.append((parsed_date, exp))
+    
+    if not parsed:
+        print("❌ No future expiry dates found")
+        return None
+    
+    # Sort by date and return the immediate (nearest future) one
+    parsed.sort(key=lambda x: x[0])
+    immediate_expiry = parsed[0][1]
+    print(f"Immediate expiry selected: {immediate_expiry} ({parsed[0][0].strftime('%Y-%m-%d')})")
+    
+    return immediate_expiry
 
 
 def analyze_options_positioning(expiry, cutoff_time=None):
@@ -88,19 +134,23 @@ def analyze_options_positioning(expiry, cutoff_time=None):
     print(f"{'='*100}\n")
     
     # Get all strikes for this expiry
-    strikes_query = f"""
+    # Build the pattern to match trading symbols
+    nifty_pattern = f'NIFTY{expiry}%'
+    
+    strikes_query = """
     SELECT DISTINCT 
-        SUBSTRING(trading_symbol FROM POSITION('{expiry}' IN trading_symbol) + LENGTH('{expiry}') FOR 5) as strike,
-        trading_symbol
+        trading_symbol,
+        CAST(SUBSTRING(trading_symbol FROM POSITION(%s IN trading_symbol) + LENGTH(%s) FOR 5) AS NUMERIC) as strike
     FROM ticks
-    WHERE trading_symbol LIKE 'NIFTY{expiry}%'
+    WHERE trading_symbol LIKE %s
     AND time >= DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Kolkata')
     AND time <= %s
+    GROUP BY trading_symbol
     ORDER BY strike
     """
     
     try:
-        cursor.execute(strikes_query, (cutoff_time,))
+        cursor.execute(strikes_query, (expiry, expiry, nifty_pattern, cutoff_time))
         strike_data = cursor.fetchall()
         
         if not strike_data:
