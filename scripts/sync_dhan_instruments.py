@@ -272,7 +272,6 @@ def sync_to_database(instruments: List[Dict], db_url: str, batch_size: int = 100
                     inst['instrument_type'],
                     inst['expiry'],
                     inst['strike'],
-                    inst['option_type'],
                     inst['tick_size'],
                     inst['lot_size'],
                     inst['security_id'],
@@ -284,10 +283,10 @@ def sync_to_database(instruments: List[Dict], db_url: str, batch_size: int = 100
             insert_query = """
                 INSERT INTO instruments (
                     instrument_token, trading_symbol, name, exchange, segment,
-                    instrument_type, expiry, strike, option_type, tick_size,
+                    instrument_type, expiry, strike, tick_size,
                     lot_size, security_id, source, is_active
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 ON CONFLICT (instrument_token) DO UPDATE SET
                     trading_symbol = EXCLUDED.trading_symbol,
@@ -297,7 +296,6 @@ def sync_to_database(instruments: List[Dict], db_url: str, batch_size: int = 100
                     instrument_type = EXCLUDED.instrument_type,
                     expiry = EXCLUDED.expiry,
                     strike = EXCLUDED.strike,
-                    option_type = EXCLUDED.option_type,
                     tick_size = EXCLUDED.tick_size,
                     lot_size = EXCLUDED.lot_size,
                     security_id = EXCLUDED.security_id,
