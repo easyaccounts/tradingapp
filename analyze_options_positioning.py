@@ -236,7 +236,7 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
         # Convert UTC timestamp back to IST for display
         interval_time_utc = row['interval_start'].replace(tzinfo=pytz.UTC)
         interval_time_ist = interval_time_utc.astimezone(IST)
-        total_oi = row['total_oi'] or 0
+        total_oi = float(row['total_oi']) if row['total_oi'] else 0
         weighted_premium_sum = float(row['weighted_premium_sum']) if row['weighted_premium_sum'] else 0
         
         # Calculate OI-weighted average premium
@@ -248,7 +248,7 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
         premium_change = (avg_premium - prev_premium) if prev_premium is not None else 0
         
         time_str = interval_time_ist.strftime('%H:%M')
-        print(f"{time_str:<20} {total_oi:<14,} {oi_change:>+13,} ({oi_change_pct:>5.1f}%) {avg_premium:>13.2f}₹ {premium_change:>+13.2f}₹")
+        print(f"{time_str:<20} {int(total_oi):<14,} {int(oi_change):>+13,} ({oi_change_pct:>5.1f}%) {avg_premium:>13.2f}₹ {premium_change:>+13.2f}₹")
         
         prev_oi = total_oi
         prev_premium = avg_premium
@@ -259,8 +259,8 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
         last = intervals[-1]
         
         # Calculate weighted averages for summary
-        first_total_oi = first['total_oi'] or 0
-        last_total_oi = last['total_oi'] or 0
+        first_total_oi = float(first['total_oi']) if first['total_oi'] else 0
+        last_total_oi = float(last['total_oi']) if last['total_oi'] else 0
         first_weighted_sum = float(first['weighted_premium_sum']) if first['weighted_premium_sum'] else 0
         last_weighted_sum = float(last['weighted_premium_sum']) if last['weighted_premium_sum'] else 0
         
@@ -273,9 +273,9 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
         
         print("-" * 80)
         print(f"\n📊 {option_type} Summary:")
-        print(f"   Opening OI: {first_total_oi:,}")
-        print(f"   Current OI: {last_total_oi:,}")
-        print(f"   Total OI Change: {total_oi_change:+,} ({total_oi_change_pct:+.1f}%)")
+        print(f"   Opening OI: {int(first_total_oi):,}")
+        print(f"   Current OI: {int(last_total_oi):,}")
+        print(f"   Total OI Change: {int(total_oi_change):+,} ({total_oi_change_pct:+.1f}%)")
         print(f"   Opening Avg Premium: ₹{first_avg_premium:.2f}")
         print(f"   Current Avg Premium: ₹{last_avg_premium:.2f}")
         print(f"   Avg Premium Change: ₹{avg_premium_change:+.2f}")
