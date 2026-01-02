@@ -28,17 +28,17 @@ IST = pytz.timezone('Asia/Kolkata')
 
 
 def get_nifty_options_expiries():
-    """Get all available NIFTY option expiries"""
+    """Get all available NIFTY option expiries from instruments table"""
     conn = psycopg2.connect(**DB_CONFIG)
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     query = """
-    SELECT DISTINCT trading_symbol
-    FROM ticks
-    WHERE trading_symbol LIKE 'NIFTY%'
-    AND instrument_type = 'CE' OR instrument_type = 'PE'
-    AND time >= DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Kolkata')
-    ORDER BY trading_symbol
+    SELECT DISTINCT tradingsymbol
+    FROM instruments
+    WHERE tradingsymbol LIKE 'NIFTY%'
+    AND instrument_type IN ('CE', 'PE')
+    AND exchange = 'NFO'
+    ORDER BY tradingsymbol
     """
     
     try:
@@ -47,11 +47,14 @@ def get_nifty_options_expiries():
         expiries = set()
         
         for row in results:
-            symbol = row['trading_symbol']
-            # Extract expiry from symbol (e.g., NIFTY24JAN26500CE -> 24JAN26)
+            symbol = row['tradingsymbol']
+            # Extract expiry from symbol (e.g., NIFTY26JAN23750CE -> 26JAN)
             if symbol:
-                parts = symbol.replace('NIFTY', '').rstrip('CEPE')
-                expiries.add(parts)
+                # Remove 'NIFTY' prefix and 'CE'/'PE' suffix, then extract YYMMMSTRIKE
+                import re
+                match = re.match(r'NIFTY(\d{2}\w{3})\d+[CP]E', symbol)
+                if match:
+                    expiries.add(match.group(1))
         
         return sorted(expiries)
     finally:
@@ -60,29 +63,26 @@ def get_nifty_options_expiries():
 
 
 def parse_expiry_date(expiry_str):
-    """Parse expiry string into sortable date. Handles formats like 25DEC16000, 26JAN23750"""
+    """Parse expiry string into sortable date. Format: YYMMMSTRIKE (e.g., 26JAN23750)"""
     import re
     from datetime import datetime
     
-    # Try to extract date pattern: DDMMMYY or DDMMMYYYY
-    match = re.match(r'(\d{2})(\w{3})(\d{2,4})', expiry_str)
+    # Extract date pattern: YYMMMSTRIKE
+    match = re.match(r'(\d{2})(\w{3})', expiry_str)
     if not match:
         return None
     
-    day, month_str, year_str = match.groups()
+    year_str, month_str = match.groups()
     
     try:
         # Map month abbreviations
         months = {'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
                   'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12}
         month = months[month_str]
+        year = 2000 + int(year_str)  # 26 -> 2026
         
-        # Handle 2-digit vs 4-digit year
-        year = int(year_str)
-        if year < 100:
-            year += 2000 if year >= 20 else 2100  # Adjust century
-        
-        date = datetime(year, month, int(day))
+        # Expiry is typically last Thursday of the month, use day 25 as approximation
+        date = datetime(year, month, 25)
         return date
     except (ValueError, KeyError):
         return None
@@ -133,24 +133,23 @@ def analyze_options_positioning(expiry, cutoff_time=None):
     print(f"Analysis Time: {cutoff_time.strftime('%Y-%m-%d %H:%M:%S IST')}")
     print(f"{'='*100}\n")
     
-    # Get all strikes for this expiry
-    # Build the pattern to match trading symbols
+    # Get all strikes for this expiry from instruments table
     nifty_pattern = f'NIFTY{expiry}%'
     
     strikes_query = """
     SELECT DISTINCT 
-        trading_symbol,
-        CAST(SUBSTRING(trading_symbol FROM POSITION(%s IN trading_symbol) + LENGTH(%s) FOR 5) AS NUMERIC) as strike
-    FROM ticks
-    WHERE trading_symbol LIKE %s
-    AND time >= DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Kolkata')
-    AND time <= %s
-    GROUP BY trading_symbol
+        tradingsymbol as trading_symbol,
+        instrument_token,
+        strike
+    FROM instruments
+    WHERE tradingsymbol LIKE %s
+    AND instrument_type IN ('CE', 'PE')
+    AND exchange = 'NFO'
     ORDER BY strike
     """
     
     try:
-        cursor.execute(strikes_query, (expiry, expiry, nifty_pattern, cutoff_time))
+        cursor.execute(strikes_query, (nifty_pattern,))
         strike_data = cursor.fetchall()
         
         if not strike_data:
