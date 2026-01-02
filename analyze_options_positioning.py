@@ -203,13 +203,13 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
     premium_status = []
     oi_status = []
     
-    print(f"{'Strike':<10} {'OI Open':<12} {'OI Current':<12} {'OI Change':<14} {'Premium Open':<14} {'Premium Now':<14} {'Premium Δ':<12}")
-    print("-"*100)
+    # Collect all strike data first
+    strike_data = []
     
     for strike in sorted(tokens_dict.keys()):
         token, symbol = tokens_dict[strike]
         
-        # Get opening tick - first tick of the day (not necessarily at 09:15)
+        # Get opening tick - first tick of the day
         open_query = """
         SELECT last_price, oi
         FROM ticks
@@ -253,6 +253,17 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
         oi_change_pct = (oi_change / open_oi * 100) if open_oi > 0 else 0
         premium_change = current_premium - open_premium
         
+        strike_data.append({
+            'strike': strike,
+            'open_oi': open_oi,
+            'current_oi': current_oi,
+            'oi_change': oi_change,
+            'oi_change_pct': oi_change_pct,
+            'open_premium': open_premium,
+            'current_premium': current_premium,
+            'premium_change': premium_change
+        })
+        
         # Accumulate totals
         total_oi_open += open_oi
         total_oi_current += current_oi
@@ -260,13 +271,19 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
         total_premium_current += current_premium
         
         # Store status
-        oi_icon = "📈" if oi_change > 0 else "📉" if oi_change < 0 else "→"
-        premium_icon = "📈" if premium_change > 0 else "📉" if premium_change < 0 else "→"
-        
-        print(f"{strike:<10} {open_oi:<11,} {current_oi:<11,} {oi_change:>+10,} ({oi_change_pct:>5.1f}%) {open_premium:>13.2f}₹ {current_premium:>13.2f}₹ {premium_change:>+10.2f}₹")
-        
         oi_status.append((strike, oi_change > 0))
         premium_status.append((strike, premium_change > 0))
+    
+    # Sort by OI change percentage (descending)
+    strike_data.sort(key=lambda x: x['oi_change_pct'], reverse=True)
+    
+    # Print sorted data
+    print(f"{'Strike':<10} {'OI Open':<12} {'OI Current':<12} {'OI Change':<14} {'Premium Open':<14} {'Premium Now':<14} {'Premium Δ':<12}")
+    print("-"*100)
+    
+    for data in strike_data:
+        print(f"{data['strike']:<10} {data['open_oi']:<11,} {data['current_oi']:<11,} {data['oi_change']:>+10,} ({data['oi_change_pct']:>5.1f}%) {data['open_premium']:>13.2f}₹ {data['current_premium']:>13.2f}₹ {data['premium_change']:>+10.2f}₹")
+    
     
     # Summary
     total_oi_change = total_oi_current - total_oi_open
