@@ -203,6 +203,36 @@ def main():
         
         # Initialize WebSocket based on data source
         if DATA_SOURCE == 'dhan':
+            # Build Dhan instruments list from cache
+            dhan_instruments = []
+            for token, info in instruments_cache.items():
+                if info.security_id and info.source == 'dhan':
+                    # Map exchange to Dhan exchange segment
+                    exchange_map = {
+                        'NSE': 0,  # NSE_EQ
+                        'NFO': 1,  # NSE_FNO
+                        'BSE': 3,  # BSE_EQ
+                        'BFO': 4,  # BSE_FNO
+                        'MCX': 6,  # MCX_COM
+                        'CDS': 7,  # NSE_CURRENCY
+                    }
+                    exchange_segment = exchange_map.get(info.exchange, 1)  # Default to NFO
+                    
+                    dhan_instruments.append({
+                        'security_id': info.security_id,
+                        'exchange_segment': exchange_segment
+                    })
+            
+            logger.info(
+                "dhan_instruments_prepared",
+                count=len(dhan_instruments),
+                sample=dhan_instruments[:3] if dhan_instruments else []
+            )
+            
+            if not dhan_instruments:
+                logger.error("no_dhan_instruments_found", message="No active Dhan instruments in database")
+                sys.exit(1)
+            
             # Initialize Dhan WebSocket client
             logger.info("initializing_dhan_websocket_client")
             dhan_websocket_client = DhanWebSocketClient(
@@ -213,10 +243,7 @@ def main():
             )
             
             logger.info("dhan_websocket_client_initialized")
-            logger.info(
-                "starting_dhan_websocket_connection",
-                instruments=config.INSTRUMENTS
-            )
+            logger.info("starting_dhan_websocket_connection")
             
             # Start Dhan connection (async)
             async def run_dhan():
@@ -230,10 +257,10 @@ def main():
                 if dhan_websocket_client.is_connected:
                     try:
                         await dhan_websocket_client.subscribe(
-                            config.INSTRUMENTS,
+                            dhan_instruments,
                             mode='full'
                         )
-                        logger.info("instruments_subscribed", count=len(config.INSTRUMENTS))
+                        logger.info("instruments_subscribed", count=len(dhan_instruments))
                     except Exception as e:
                         logger.error("subscription_failed", error=str(e))
                 
