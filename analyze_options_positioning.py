@@ -92,14 +92,14 @@ def analyze_options_positioning(expiry, cutoff_time=None):
         strike
     FROM instruments
     WHERE expiry = %s
-    AND trading_symbol LIKE 'NIFTY%'
-    AND instrument_type IN ('CE', 'PE')
-    AND exchange = 'NFO'
+    AND trading_symbol LIKE %s
+    AND (instrument_type = %s OR instrument_type = %s)
+    AND exchange = %s
     ORDER BY strike
     """
     
     try:
-        cursor.execute(strikes_query, (expiry,))
+        cursor.execute(strikes_query, (expiry, 'NIFTY%', 'CE', 'PE', 'NFO'))
         strike_data = cursor.fetchall()
         
         if not strike_data:
