@@ -40,8 +40,10 @@ class SlackAlerter:
         
         # Apply confidence filters
         if signal_type == 'key_level':
-            # Only alert on strong levels (3x+ average)
+            # Only alert on strong levels (3x+ average) AND avg_quantity > 10k
             if data.get('strength', 0) < 3.0:
+                return False
+            if data.get('avg_quantity', 0) <= 10000:
                 return False
             # Level must be at least 10 seconds old (proven)
             if data.get('age_seconds', 0) < 10:
@@ -117,6 +119,7 @@ class SlackAlerter:
         emoji = "🟢" if side == 'support' else "🔴"
         peak_qty = data.get('peak_quantity', 0)
         avg_qty = data.get('avg_quantity', 0)
+        first_seen = data.get('first_seen', 'N/A')
         
         return {
             "blocks": [
@@ -144,7 +147,7 @@ class SlackAlerter:
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*Age:*\n{data['age_display']}"
+                            "text": f"*First Seen:*\n{first_seen}"
                         },
                         {
                             "type": "mrkdwn",
@@ -157,7 +160,7 @@ class SlackAlerter:
                     "elements": [
                         {
                             "type": "mrkdwn",
-                            "text": f"Distance from price: {data['distance']:.0f} points | Tests: {data['tests']}"
+                            "text": f"Distance from price: {data['distance']:.0f} points | Tests: {data['tests']} | Age: {data['age_display']}"
                         }
                     ]
                 }

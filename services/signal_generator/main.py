@@ -217,7 +217,7 @@ class SignalGenerator:
         
         # Alert on new strong key levels
         for level in key_levels:
-            if level['strength'] >= 3.0 and level['age_seconds'] >= 10:
+            if level['strength'] >= 3.0 and level['age_seconds'] >= 10 and level['avg_quantity'] > 10000:
                 data = {**level, 'current_price': current_price}
                 sent = self.slack.send_alert('key_level', data)
                 if sent:

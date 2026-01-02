@@ -32,11 +32,13 @@ def identify_key_levels(current_snapshot: dict, level_tracker, current_price: fl
     for level in bid_levels + ask_levels:
         price = level['price']
         orders = level['orders']
+        quantity = level['quantity']
         
         if abs(price - current_price) > 100:
             continue
         
-        if orders > threshold:
+        # Filter: orders > 2.5x average AND quantity > 10k
+        if orders > threshold and quantity > 10000:
             side = 'support' if price < current_price else 'resistance'
             current_big_levels[price] = {
                 'price': price,

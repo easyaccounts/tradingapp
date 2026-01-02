@@ -119,6 +119,7 @@ class TrackedLevel:
         return {
             'price': float(self.price),
             'side': self.side,
+            'first_seen': self.first_seen.strftime('%H:%M:%S') if self.first_seen else 'N/A',
             'orders': self.current_orders,
             'peak_orders': self.peak_orders,
             'quantity': self.current_quantity,
