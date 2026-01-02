@@ -36,6 +36,20 @@ EXCHANGE_SEGMENT_MAP = {
     6: "MCX_COMM"
 }
 
+# Reverse mapping for string-based exchange IDs (newer CSV format)
+EXCHANGE_STRING_TO_CODE = {
+    'NSE': 0,
+    'BSE': 3,
+    'MCX': 6,
+    'NSE_EQ': 0,
+    'NSE_FNO': 1,
+    'NSE_CURRENCY': 2,
+    'BSE_EQ': 3,
+    'BSE_FNO': 4,
+    'BSE_CURRENCY': 5,
+    'MCX_COMM': 6
+}
+
 
 def download_instruments_csv(url: str, output_path: str) -> bool:
     """
@@ -87,8 +101,19 @@ def parse_dhan_csv(csv_path: str) -> List[Dict]:
             
             for row in reader:
                 try:
-                    # Parse exchange segment
-                    exchange_segment_code = int(row['SEM_EXM_EXCH_ID'])
+                    # Parse exchange segment (handle both numeric and string formats)
+                    exch_id = row['SEM_EXM_EXCH_ID'].strip()
+                    
+                    # Try parsing as integer first (old format)
+                    try:
+                        exchange_segment_code = int(exch_id)
+                    except ValueError:
+                        # New format: string like 'NSE', 'BSE', 'MCX'
+                        exchange_segment_code = EXCHANGE_STRING_TO_CODE.get(exch_id)
+                        if exchange_segment_code is None:
+                            logger.warning("unknown_exchange", exchange=exch_id)
+                            continue
+                    
                     exchange_segment = EXCHANGE_SEGMENT_MAP.get(exchange_segment_code, 'UNKNOWN')
                     
                     # Determine exchange (NSE/BSE/MCX)
