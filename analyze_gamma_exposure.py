@@ -341,6 +341,11 @@ def extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, op
         lower_val = pricing_fn(MIN_IV)
         upper_val = pricing_fn(MAX_IV)
         
+        # DEBUG for deep ITM options that fail
+        if strike < spot and lower_val * upper_val > 0 and market_price > 100:
+            import sys
+            print(f"[DEBUG] IV solver failed for strike {strike:.0f} {option_type}: premium={market_price:.2f}, lower_val={lower_val:.2f}, upper_val={upper_val:.2f}", file=sys.stderr)
+        
         if lower_val * upper_val > 0:
             # No solution in range - market price might be unrealistic
             # Use MIN_IV as fallback (better than MAX_IV for boundary cases)
@@ -552,7 +557,7 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None, verbose=True):
         
         # Get all options data
         t3 = time.time()
-        options_data = get_all_nifty_options_data(conn, expiry, cutoff_time, use_closest_time=True)
+        options_data = get_all_nifty_options_data(conn, expiry, cutoff_time, use_closest_time=False)
         t4 = time.time()
         
         if not options_data:
