@@ -223,26 +223,26 @@ class SignalGenerator:
                 if sent:
                     print(f"  📢 Slack: Strong {level['side']} at ₹{level['price']:.2f}")
         
-        # Alert on absorptions/breakouts
-        for absorption in absorptions:
-            if absorption['reduction_pct'] >= 70 and absorption['price_broke']:
-                sent = self.slack.send_alert('absorption', absorption)
-                if sent:
-                    print(f"  📢 Slack: {absorption['side'].upper()} breaking at ₹{absorption['price']:.2f}")
+        # Alert on absorptions/breakouts - DISABLED
+        # for absorption in absorptions:
+        #     if absorption['reduction_pct'] >= 70 and absorption['price_broke']:
+        #         sent = self.slack.send_alert('absorption', absorption)
+        #         if sent:
+        #             print(f"  📢 Slack: {absorption['side'].upper()} breaking at ₹{absorption['price']:.2f}")
         
-        # Alert on significant pressure changes
-        if pressure['state'] != self.last_market_state:
-            if abs(pressure['60s']) >= 0.4:  # Strong pressure
-                data = {
-                    **pressure,
-                    'pressure_30s': pressure.get('30s') if '30s' in pressure else pressure.get('pressure_30s', 0),
-                    'pressure_60s': pressure.get('60s') if '60s' in pressure else pressure.get('pressure_60s', 0),
-                    'pressure_120s': pressure.get('120s') if '120s' in pressure else pressure.get('pressure_120s', 0),
-                    'current_price': current_price
-                }
-                sent = self.slack.send_alert('pressure_change', data)
-                if sent:
-                    print(f"  📢 Slack: Pressure shift to {pressure['state'].upper()}")
+        # Alert on significant pressure changes - DISABLED
+        # if pressure['state'] != self.last_market_state:
+        #     if abs(pressure['60s']) >= 0.4:  # Strong pressure
+        #         data = {
+        #             **pressure,
+        #             'pressure_30s': pressure.get('30s') if '30s' in pressure else pressure.get('pressure_30s', 0),
+        #             'pressure_60s': pressure.get('60s') if '60s' in pressure else pressure.get('pressure_60s', 0),
+        #             'pressure_120s': pressure.get('120s') if '120s' in pressure else pressure.get('pressure_120s', 0),
+        #             'current_price': current_price
+        #         }
+        #         sent = self.slack.send_alert('pressure_change', data)
+        #         if sent:
+        #             print(f"  📢 Slack: Pressure shift to {pressure['state'].upper()}")
             
             self.last_market_state = pressure['state']
     
