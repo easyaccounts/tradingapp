@@ -206,12 +206,12 @@ def analyze_option_type(conn, option_type, tokens_dict, cutoff_time):
     interval_query = """
     SELECT 
         DATE_TRUNC('minute', time) - 
-        (EXTRACT(MINUTE FROM time)::int % 5) * INTERVAL '1 minute' as interval_start,
+        (EXTRACT(MINUTE FROM time)::int %% 5) * INTERVAL '1 minute' as interval_start,
         SUM(oi) as total_oi,
         AVG(last_price) as avg_premium,
         COUNT(DISTINCT instrument_token) as token_count
     FROM ticks
-    WHERE instrument_token = ANY(%s)
+    WHERE instrument_token = ANY(%s::int[])
     AND time >= %s
     AND time <= %s
     GROUP BY interval_start
