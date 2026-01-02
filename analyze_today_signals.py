@@ -201,13 +201,13 @@ def analyze_pressure_shifts(signals):
 
 
 def print_report(signals):
-    """Generate comprehensive report"""
+    """Generate pressure analysis report"""
     if not signals:
         print("❌ No signals found for today")
         return
     
     print("="*80)
-    print(f"📊 DEPTH SIGNALS ANALYSIS - {datetime.now(IST).strftime('%Y-%m-%d')}")
+    print(f"📊 PRESSURE ANALYSIS - {datetime.now(IST).strftime('%Y-%m-%d')}")
     print("="*80)
     
     # Basic stats
@@ -220,90 +220,90 @@ def print_report(signals):
     
     print(f"\n⏰ Session: {start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}")
     print(f"💰 Price: ₹{start_price:.2f} → ₹{end_price:.2f} ({end_price - start_price:+.2f})")
-    print(f"📈 Total signals: {len(signals)}")
-    
-    # Level lifecycle analysis
-    print("\n" + "="*80)
-    print("🎯 KEY LEVEL ANALYSIS")
-    print("="*80)
-    
-    level_history = analyze_level_lifecycle(signals)
-    breakouts, held_levels = find_breakouts(level_history, signals)
-    
-    print(f"\n✅ BREAKOUTS ({len(breakouts)} levels)")
-    print("-" * 80)
-    for i, level in enumerate(sorted(breakouts, key=lambda x: x['first_seen']), 1):
-        print(f"\n{i}. {level['side'].upper()} @ ₹{level['price']:.2f}")
-        print(f"   First seen: {level['first_seen'].strftime('%H:%M:%S')}")
-        print(f"   Broke after: {level['duration_minutes']:.1f} minutes")
-        print(f"   Max tests: {level['max_tests']}")
-        print(f"   Avg strength: {level['avg_strength']}x")
-    
-    print(f"\n\n🛑 LEVELS THAT HELD ({len(held_levels)} levels)")
-    print("-" * 80)
-    for i, level in enumerate(sorted(held_levels, key=lambda x: x['max_tests'], reverse=True), 1):
-        print(f"\n{i}. {level['side'].upper()} @ ₹{level['price']:.2f}")
-        print(f"   Duration: {level['duration_minutes']:.1f} minutes")
-        print(f"   Max tests: {level['max_tests']} ← Rejection strength")
-        print(f"   Avg strength: {level['avg_strength']}x")
-    
-    # Market modes
-    print("\n" + "="*80)
-    print("🔄 MARKET MODE ANALYSIS")
-    print("="*80)
-    
-    modes = analyze_market_modes(signals)
-    
-    for i, mode_data in enumerate(modes, 1):
-        icon = "🚀" if mode_data['mode'] == 'breakout' else "📦" if mode_data['mode'] == 'range' else "⚖️"
-        print(f"\n{i}. {icon} {mode_data['mode'].upper()}")
-        print(f"   Time: {mode_data['start_time'].strftime('%H:%M')} - {mode_data['end_time'].strftime('%H:%M')} ({mode_data['duration_minutes']:.1f} min)")
-        print(f"   Price: ₹{mode_data['price_start']:.2f} → ₹{mode_data['price_end']:.2f} ({mode_data['price_change']:+.2f})")
-        print(f"   Range: ₹{mode_data['price_range']:.2f}")
+    print(f"📈 Total signals: {len(signals)}\n")
     
     # Pressure shifts
-    print("\n" + "="*80)
-    print("⚡ PRESSURE SHIFT ANALYSIS")
+    print("="*80)
+    print("⚡ PRESSURE CHANGES OVER TIME")
     print("="*80)
     
     shifts = analyze_pressure_shifts(signals)
     
     if shifts:
+        print(f"\nDetected {len(shifts)} major pressure shift(s):\n")
         for i, shift in enumerate(shifts, 1):
             arrow = "🟢" if shift['to_state'] == 'bullish' else "🔴" if shift['to_state'] == 'bearish' else "⚪"
-            print(f"\n{i}. {arrow} {shift['from_state'].upper()} → {shift['to_state'].upper()}")
+            print(f"{i}. {arrow} {shift['from_state'].upper()} → {shift['to_state'].upper()}")
             print(f"   Time: {shift['time'].strftime('%H:%M:%S')}")
             print(f"   Price: ₹{shift['price']:.2f}")
-            print(f"   Pressure: {shift['pressure_60s']:+.3f}")
+            print(f"   Pressure (60s): {shift['pressure_60s']:+.3f}")
     else:
-        print("\n   No significant pressure shifts detected")
+        print("\n   No significant pressure shifts detected - market stayed in one state")
     
-    # Trading insights
+    # Detailed pressure timeline
     print("\n" + "="*80)
-    print("💡 TRADING INSIGHTS")
+    print("📈 PRESSURE TIMELINE (every 30 seconds)")
+    print("="*80 + "\n")
+    
+    # Sample every 30 seconds
+    sampled_signals = signals[::3] if len(signals) > 30 else signals
+    
+    print(f"{'Time':<10} {'Price':<10} {'Pressure 30s':<15} {'Pressure 60s':<15} {'Pressure 120s':<15} {'State':<12}")
+    print("-"*80)
+    
+    for record in sampled_signals:
+        time = record['time'].astimezone(IST).strftime('%H:%M:%S')
+        price = float(record['current_price'])
+        p30 = float(record['pressure_30s']) if record['pressure_30s'] else 0
+        p60 = float(record['pressure_60s']) if record['pressure_60s'] else 0
+        p120 = float(record['pressure_120s']) if record['pressure_120s'] else 0
+        state = record['market_state']
+        
+        p30_str = f"{p30:+.3f}"
+        p60_str = f"{p60:+.3f}"
+        p120_str = f"{p120:+.3f}"
+        
+        print(f"{time:<10} ₹{price:<9.2f} {p30_str:<15} {p60_str:<15} {p120_str:<15} {state:<12}")
+    
+    # Summary statistics
+    print("\n" + "="*80)
+    print("📊 PRESSURE STATISTICS")
     print("="*80)
     
-    breakout_count = sum(1 for m in modes if m['mode'] == 'breakout')
-    range_count = sum(1 for m in modes if m['mode'] == 'range')
+    pressure_60s_values = [float(s['pressure_60s']) for s in signals if s['pressure_60s'] is not None]
     
-    if breakout_count > range_count:
-        print("\n   📈 Today was TREND DAY - Breakout strategy would work")
-        print("   ✅ Trade: Fresh resistances with low tests → Buy breakouts")
-        print("   ❌ Avoid: Fading levels or mean reversion")
-    else:
-        print("\n   📊 Today was RANGE DAY - Mean reversion would work")
-        print("   ✅ Trade: Levels with 10+ tests → Fade extremes")
-        print("   ❌ Avoid: Chasing breakouts")
-    
-    if len(breakouts) > 0:
-        avg_breakout_time = sum(b['duration_minutes'] for b in breakouts) / len(breakouts)
-        print(f"\n   ⏱️  Average breakout time: {avg_breakout_time:.1f} minutes")
-        print(f"   💡 Levels typically hold for {avg_breakout_time:.0f} min before breaking")
-    
-    if len(held_levels) > 0:
-        strongest_level = max(held_levels, key=lambda x: x['max_tests'])
-        print(f"\n   🏆 Strongest level: {strongest_level['side'].upper()} @ ₹{strongest_level['price']:.2f}")
-        print(f"       Rejected {strongest_level['max_tests']} times!")
+    if pressure_60s_values:
+        avg_pressure = sum(pressure_60s_values) / len(pressure_60s_values)
+        max_pressure = max(pressure_60s_values)
+        min_pressure = min(pressure_60s_values)
+        
+        bullish_count = sum(1 for s in signals if s['market_state'] == 'bullish')
+        bearish_count = sum(1 for s in signals if s['market_state'] == 'bearish')
+        neutral_count = sum(1 for s in signals if s['market_state'] == 'neutral')
+        
+        print(f"\nPressure (60s window):")
+        print(f"  Average: {avg_pressure:+.3f}")
+        print(f"  Max (Most Bullish): {max_pressure:+.3f}")
+        print(f"  Min (Most Bearish): {min_pressure:+.3f}")
+        print(f"  Range: {max_pressure - min_pressure:.3f}")
+        
+        print(f"\nMarket State Distribution:")
+        print(f"  🟢 Bullish: {bullish_count} samples ({100*bullish_count/len(signals):.1f}%)")
+        print(f"  🔴 Bearish: {bearish_count} samples ({100*bearish_count/len(signals):.1f}%)")
+        print(f"  ⚪ Neutral: {neutral_count} samples ({100*neutral_count/len(signals):.1f}%)")
+        
+        # Determine overall market bias
+        if bullish_count > bearish_count:
+            bias = "BULLISH"
+            icon = "🟢"
+        elif bearish_count > bullish_count:
+            bias = "BEARISH"
+            icon = "🔴"
+        else:
+            bias = "NEUTRAL"
+            icon = "⚪"
+        
+        print(f"\n{icon} Overall Bias: {bias}")
     
     print("\n" + "="*80)
 
