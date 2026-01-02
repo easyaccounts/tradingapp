@@ -388,6 +388,8 @@ def compare_call_put_positioning(conn, call_tokens, put_tokens, cutoff_time):
 
 
 def main():
+    import sys
+    
     print("Fetching NIFTY option data...\n")
     
     # Get immediate expiry
@@ -396,8 +398,20 @@ def main():
     if not expiry:
         return
     
+    # Allow optional date argument for testing (format: YYYY-MM-DD)
+    analysis_time = None
+    if len(sys.argv) > 1:
+        try:
+            from datetime import datetime
+            analysis_time = datetime.strptime(sys.argv[1], '%Y-%m-%d').replace(hour=15, minute=30)
+            analysis_time = IST.localize(analysis_time)
+            print(f"Analysis date override: {analysis_time.strftime('%Y-%m-%d %H:%M:%S IST')}\n")
+        except:
+            print("Invalid date format. Use: python script.py YYYY-MM-DD")
+            return
+    
     # Analyze positioning
-    analyze_options_positioning(expiry)
+    analyze_options_positioning(expiry, analysis_time)
 
 
 if __name__ == '__main__':
