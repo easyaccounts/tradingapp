@@ -12,6 +12,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import pytz
 from dotenv import load_dotenv
+from kiteconnect import KiteConnect
 
 # Load environment
 load_dotenv()
@@ -26,6 +27,10 @@ DB_CONFIG = {
 }
 
 IST = pytz.timezone('Asia/Kolkata')
+
+# KiteConnect config
+KITE_API_KEY = os.getenv('KITE_API_KEY')
+NIFTY_TOKEN = 256265  # NIFTY 50 index token
 
 
 def get_immediate_expiry(conn):
@@ -51,17 +56,72 @@ def get_immediate_expiry(conn):
         cursor.close()
 
 
+def get_kite_instance():
+    """Get authenticated KiteConnect instance"""
+    try:
+        # Get access token from file
+        token_file = '/app/data/access_token.txt'
+        if not os.path.exists(token_file):
+            token_file = os.path.expanduser('~/.kite_access_token.txt')
+        
+        with open(token_file, 'r') as f:
+            access_token = f.read().strip()
+        
+        kite = KiteConnect(api_key=KITE_API_KEY)
+        kite.set_access_token(access_token)
+        return kite
+    except Exception as e:
+        print(f"⚠️  Could not authenticate KiteConnect: {e}")
+        return None
+
+
+def get_current_spot_price_from_kite():
+    """Get latest NIFTY 50 spot price using KiteConnect historical API"""
+    try:
+        kite = get_kite_instance()
+        if not kite:
+            return None
+        
+        # Get today's date
+        today = datetime.now(IST).date()
+        
+        # Fetch 1-minute candles for today (gives us latest price)
+        data = kite.historical_data(
+            instrument_token=NIFTY_TOKEN,
+            from_date=today,
+            to_date=today,
+            interval="minute"
+        )
+        
+        if data:
+            # Get the last candle (most recent)
+            latest = data[-1]
+            spot_price = float(latest['close'])
+            return spot_price
+        
+        return None
+    except Exception as e:
+        print(f"⚠️  KiteConnect error: {e}")
+        return None
+
+
 def get_current_spot_price(conn):
-    """Get the latest NIFTY spot price from ticks"""
+    """Get the latest NIFTY spot price - try KiteConnect first, fallback to DB"""
+    
+    # Try KiteConnect first (most reliable)
+    spot = get_current_spot_price_from_kite()
+    if spot:
+        return spot
+    
+    print("⚠️  Falling back to database for spot price...")
+    
+    # Fallback: Get from database
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     query = """
     SELECT last_price
     FROM ticks
-    WHERE instrument_token = (
-        SELECT instrument_token FROM instruments 
-        WHERE trading_symbol = 'NIFTY 50' LIMIT 1
-    )
+    WHERE instrument_token = 256265
     ORDER BY time DESC
     LIMIT 1
     """
@@ -70,6 +130,9 @@ def get_current_spot_price(conn):
         cursor.execute(query)
         result = cursor.fetchone()
         return float(result['last_price']) if result else None
+    except Exception as e:
+        print(f"⚠️  Database spot price error: {e}")
+        return None
     finally:
         cursor.close()
 
