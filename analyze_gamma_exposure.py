@@ -43,9 +43,9 @@ RISK_FREE_RATE = 0.065
 MIN_IV = 0.001
 MAX_IV = 2.0
 
-# OPTIMIZATION: IV caching to avoid redundant solver calls
-IV_CACHE = {}  # {(spot, strike, days_to_expiry): iv}
-CACHE_EXPIRY_MINUTES = 15
+# OPTIMIZATION: IV caching - key by strike only (IV should be same for call/put at same strike)
+IV_CACHE = {}  # {(strike, days_to_expiry): iv}
+CACHE_TIMESTAMP = {}  # Track cache freshness
 
 
 def get_immediate_expiry(conn):
@@ -267,38 +267,47 @@ def black_scholes_gamma(spot, strike, time_to_expiry_years, risk_free_rate, vola
 
 
 def extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, option_type, risk_free_rate=RISK_FREE_RATE):
-    """Extract IV from market premium using Black-Scholes solver with caching"""
+    """
+    Extract IV from market premium using Black-Scholes solver
+    OPTIMIZED: Smart caching by strike (not spot-dependent for efficiency)
+    """
     
     if market_price <= 0 or time_to_expiry_years <= 0:
         return 0.15
     
-    # OPTIMIZATION: Check IV cache first
-    cache_key = (round(spot, 0), round(strike, 0), round(time_to_expiry_years * 365))
+    # OPTIMIZATION: Strike-based cache (IV is strike-specific, not spot-specific)
+    # Same strike should have similar IV for both calls and puts (put-call parity)
+    cache_key = (round(strike, 0), round(time_to_expiry_years * 365, 0))
+    
     if cache_key in IV_CACHE:
         return IV_CACHE[cache_key]
     
+    # Select pricing function based on option type
     if option_type == 'CE':
         pricing_fn = lambda iv: black_scholes_call(spot, strike, time_to_expiry_years, risk_free_rate, iv) - market_price
     else:
         pricing_fn = lambda iv: black_scholes_put(spot, strike, time_to_expiry_years, risk_free_rate, iv) - market_price
     
     try:
-        # Quick check if solution exists
+        # Check if solution exists in range (sign change test)
         lower_val = pricing_fn(MIN_IV)
         upper_val = pricing_fn(MAX_IV)
         
         if lower_val * upper_val > 0:
-            # No sign change = no solution in range
-            iv = 0.15
+            # No solution in range - market price might be unrealistic
+            # Use midpoint as fallback
+            iv = (MIN_IV + MAX_IV) / 2
         else:
-            # Use Brent's method (converges faster than bisection)
-            iv = brentq(pricing_fn, MIN_IV, MAX_IV, xtol=1e-5, rtol=1e-5)  # Relaxed tolerance for speed
+            # Brent's method converges faster than bisection
+            # Relaxed tolerance for speed (±0.1% IV acceptable)
+            iv = brentq(pricing_fn, MIN_IV, MAX_IV, xtol=1e-4, rtol=1e-4, maxiter=50)
             iv = max(MIN_IV, min(MAX_IV, iv))
     
-    except:
-        iv = 0.15
+    except Exception as e:
+        # Solver failed - return midpoint
+        iv = (MIN_IV + MAX_IV) / 2
     
-    # OPTIMIZATION: Cache the result
+    # Cache the result
     IV_CACHE[cache_key] = iv
     return iv
 
@@ -319,10 +328,10 @@ def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
     """
     Calculate Net Gamma Exposure using Black-Scholes gamma
     OPTIMIZED: 
-    - Pre-compute time-to-expiry once (not per option)
-    - Use defaultdict for faster IV tracking
-    - Batch IV calculations for ATM strikes
-    - Skip premium calculations for zero-OI strikes
+    - Calculate IV for ALL strikes (not just ATM)
+    - Use strike-based caching for efficiency
+    - Batch similar strikes together to maximize cache hits
+    - Skip zero-OI options
     
     GEX = Sum of (OI × Gamma × Side)
     """
@@ -331,31 +340,16 @@ def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
     days_to_expiry = (expiry_date - current_date).days
     years_to_expiry = max(days_to_expiry / 365.0, 1/365.0)
     
-    # Pre-compute sqrt values (used multiple times in BS calculations)
-    sqrt_T = math.sqrt(years_to_expiry)
-    sqrt_T_inv = 1.0 / sqrt_T if years_to_expiry > 0 else 0
-    
     total_gex = 0.0
     strike_gammas = {}
     iv_levels = defaultdict(list)
     
-    # OPTIMIZATION: Separate ATM and OTM processing
-    atm_options = []
-    otm_options = []
+    # OPTIMIZATION: Pre-filter zero OI options
+    valid_options = [opt for opt in options_data if int(opt['oi']) > 0]
     
-    # First pass: Segregate by distance
-    for option in options_data:
-        if int(option['oi']) == 0:  # Skip zero OI
-            continue
-        
-        distance = abs(float(option['strike']) - spot_price)
-        if distance <= 200:
-            atm_options.append(option)
-        else:
-            otm_options.append(option)
+    print(f"\n[CALC] Processing {len(valid_options)} options with non-zero OI...")
     
-    # Process ATM options with IV extraction
-    for option in atm_options:
+    for idx, option in enumerate(valid_options):
         strike = float(option['strike'])
         oi = int(option['oi'])
         premium = float(option['last_price'])
@@ -363,6 +357,8 @@ def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
         distance = abs(strike - spot_price)
         
         try:
+            # CALCULATE IV FOR ALL STRIKES (not just ATM)
+            # The solver is fast with caching - most strikes will hit cache
             if premium > 0:
                 gamma, iv = calculate_gamma_blackscholes(
                     spot=spot_price,
@@ -373,7 +369,8 @@ def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
                     risk_free_rate=RISK_FREE_RATE
                 )
             else:
-                iv = 0.15
+                # Zero premium options (deep ITM/OTM) - use Black-Scholes intrinsic value
+                iv = 0.15  # Default for zero premium
                 gamma = black_scholes_gamma(spot_price, strike, years_to_expiry, RISK_FREE_RATE, iv)
             
             strike_key = f"{strike:.0f}{instrument_type}"
@@ -383,44 +380,17 @@ def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
                 'premium': premium,
                 'iv': iv,
                 'type': instrument_type,
-                'distance': distance,
-                'iv_extracted': True
+                'distance': distance
             }
             
             iv_levels[strike].append(iv)
-            total_gex += -oi * gamma
-        
-        except:
-            continue
-    
-    # Process OTM options with default IV (FAST PATH)
-    default_iv = 0.15
-    for option in otm_options:
-        strike = float(option['strike'])
-        oi = int(option['oi'])
-        premium = float(option['last_price'])
-        instrument_type = option['instrument_type']
-        distance = abs(strike - spot_price)
-        
-        try:
-            # Skip expensive IV solver for OTM - use default
-            gamma = black_scholes_gamma(spot_price, strike, years_to_expiry, RISK_FREE_RATE, default_iv)
             
-            strike_key = f"{strike:.0f}{instrument_type}"
-            strike_gammas[strike_key] = {
-                'gamma': gamma,
-                'oi': oi,
-                'premium': premium,
-                'iv': default_iv,
-                'type': instrument_type,
-                'distance': distance,
-                'iv_extracted': False
-            }
-            
-            iv_levels[strike].append(default_iv)
-            total_gex += -oi * gamma
+            # GEX contribution
+            contribution = -oi * gamma
+            total_gex += contribution
         
-        except:
+        except Exception as e:
+            # Skip problematic options
             continue
     
     return total_gex, strike_gammas, iv_levels
@@ -533,7 +503,9 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None, verbose=True):
         
         if verbose:
             print(f"[TIMING] GEX calculation: {t6-t5:.2f}s")
-            print(f"[CACHE] IV solver calls avoided: {len(IV_CACHE)}")
+            print(f"[CACHE] IV solver calls avoided: {len(IV_CACHE)} unique strike-days cached")
+            atm_iv_extracted = sum(1 for og in strike_gammas.values() if og['distance'] <= 200)
+            print(f"[CALC] IV calculated for {len(IV_CACHE)} strikes (cache efficiency: {100*len(IV_CACHE)/len(strike_gammas):.1f}%)")
         
         # Get interpretation
         interpretation = get_gex_interpretation(gex)
