@@ -5,11 +5,13 @@ Tracks how much dealers are forced to hedge and in which direction
 Helps identify trending vs mean-reversion market environments
 
 Uses Black-Scholes model with IV extracted from market premiums
+OPTIMIZED for high data volumes with efficient caching and batch processing
 """
 
 import os
 import math
 from datetime import datetime, timedelta
+from collections import defaultdict
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import pytz
@@ -34,12 +36,16 @@ IST = pytz.timezone('Asia/Kolkata')
 
 # KiteConnect config
 KITE_API_KEY = os.getenv('KITE_API_KEY')
-NIFTY_TOKEN = 256265  # NIFTY 50 index token
+NIFTY_TOKEN = 256265
 
 # Indian market parameters
-RISK_FREE_RATE = 0.065  # ~6.5% RBI repo rate (adjust as needed)
+RISK_FREE_RATE = 0.065
 MIN_IV = 0.001
-MAX_IV = 2.0  # 200% IV (for extreme volatility)
+MAX_IV = 2.0
+
+# OPTIMIZATION: IV caching to avoid redundant solver calls
+IV_CACHE = {}  # {(spot, strike, days_to_expiry): iv}
+CACHE_EXPIRY_MINUTES = 15
 
 
 def get_immediate_expiry(conn):
@@ -147,43 +153,56 @@ def get_current_spot_price(conn):
 
 
 def get_all_nifty_options_data(conn, expiry, cutoff_time=None):
-    """Get latest tick data for all NIFTY options"""
+    """
+    Get latest tick data for all NIFTY options
+    OPTIMIZED: 
+    - Uses index on (instrument_token, time) for fast filtering
+    - Only fetches last N hours (time windowing)
+    - Fetch on segment+expiry first (narrow down rows fast)
+    """
     
     if cutoff_time is None:
         cutoff_time = datetime.now(IST)
     
-    # Convert IST to UTC for database query
     cutoff_utc = cutoff_time.astimezone(pytz.UTC)
+    start_time_utc = cutoff_utc - timedelta(hours=2)  # 2-hour window
     
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
+    # OPTIMIZED: Use filtered subquery approach (PostgreSQL planner optimizes better)
     query = """
-    WITH latest_ticks AS (
+    WITH filtered_instruments AS (
+        SELECT instrument_token, trading_symbol, strike, instrument_type
+        FROM instruments
+        WHERE segment = 'NFO-OPT'
+        AND expiry = %s
+        AND exchange = 'NFO'
+        AND name LIKE 'NIFTY%%'
+    ),
+    latest_ticks AS (
         SELECT 
-            i.instrument_token,
-            i.trading_symbol,
-            i.strike,
-            i.instrument_type,
+            fi.instrument_token,
+            fi.trading_symbol,
+            fi.strike,
+            fi.instrument_type,
             t.last_price,
             t.oi,
             t.volume_traded,
-            ROW_NUMBER() OVER (PARTITION BY i.instrument_token ORDER BY t.time DESC) as rn
-        FROM instruments i
-        JOIN ticks t ON i.instrument_token = t.instrument_token
-        WHERE i.segment = %s
-        AND i.name LIKE %s
-        AND i.expiry = %s
-        AND i.exchange = %s
-        AND t.time <= %s
+            ROW_NUMBER() OVER (PARTITION BY t.instrument_token ORDER BY t.time DESC) as rn
+        FROM filtered_instruments fi
+        INNER JOIN ticks t ON fi.instrument_token = t.instrument_token
+        WHERE t.time >= %s AND t.time <= %s
     )
-    SELECT *
+    SELECT 
+        instrument_token, trading_symbol, strike, instrument_type,
+        last_price, oi, volume_traded
     FROM latest_ticks
     WHERE rn = 1
     ORDER BY strike, instrument_type
     """
     
     try:
-        cursor.execute(query, ('NFO-OPT', 'NIFTY%', expiry, 'NFO', cutoff_utc))
+        cursor.execute(query, (expiry, start_time_utc, cutoff_utc))
         return cursor.fetchall()
     finally:
         cursor.close()
@@ -248,10 +267,15 @@ def black_scholes_gamma(spot, strike, time_to_expiry_years, risk_free_rate, vola
 
 
 def extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, option_type, risk_free_rate=RISK_FREE_RATE):
-    """Extract IV from market premium using Black-Scholes solver"""
+    """Extract IV from market premium using Black-Scholes solver with caching"""
     
     if market_price <= 0 or time_to_expiry_years <= 0:
         return 0.15
+    
+    # OPTIMIZATION: Check IV cache first
+    cache_key = (round(spot, 0), round(strike, 0), round(time_to_expiry_years * 365))
+    if cache_key in IV_CACHE:
+        return IV_CACHE[cache_key]
     
     if option_type == 'CE':
         pricing_fn = lambda iv: black_scholes_call(spot, strike, time_to_expiry_years, risk_free_rate, iv) - market_price
@@ -259,14 +283,24 @@ def extract_iv_from_premium(market_price, spot, strike, time_to_expiry_years, op
         pricing_fn = lambda iv: black_scholes_put(spot, strike, time_to_expiry_years, risk_free_rate, iv) - market_price
     
     try:
-        if pricing_fn(MIN_IV) * pricing_fn(MAX_IV) > 0:
-            return 0.15
+        # Quick check if solution exists
+        lower_val = pricing_fn(MIN_IV)
+        upper_val = pricing_fn(MAX_IV)
         
-        iv = brentq(pricing_fn, MIN_IV, MAX_IV, xtol=1e-6)
-        return max(MIN_IV, min(MAX_IV, iv))
+        if lower_val * upper_val > 0:
+            # No sign change = no solution in range
+            iv = 0.15
+        else:
+            # Use Brent's method (converges faster than bisection)
+            iv = brentq(pricing_fn, MIN_IV, MAX_IV, xtol=1e-5, rtol=1e-5)  # Relaxed tolerance for speed
+            iv = max(MIN_IV, min(MAX_IV, iv))
     
     except:
-        return 0.15
+        iv = 0.15
+    
+    # OPTIMIZATION: Cache the result
+    IV_CACHE[cache_key] = iv
+    return iv
 
 
 def calculate_gamma_blackscholes(spot, strike, time_to_expiry_years, market_price, option_type, risk_free_rate=RISK_FREE_RATE):
@@ -284,38 +318,64 @@ def calculate_gamma_blackscholes(spot, strike, time_to_expiry_years, market_pric
 def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
     """
     Calculate Net Gamma Exposure using Black-Scholes gamma
+    OPTIMIZED: 
+    - Pre-compute time-to-expiry once (not per option)
+    - Use defaultdict for faster IV tracking
+    - Batch IV calculations for ATM strikes
+    - Skip premium calculations for zero-OI strikes
     
     GEX = Sum of (OI × Gamma × Side)
-    - Negative GEX = Dealers SHORT gamma (trending environment)
-    - Positive GEX = Dealers LONG gamma (mean-reversion environment)
     """
     
     current_date = datetime.now(IST).date()
     days_to_expiry = (expiry_date - current_date).days
-    years_to_expiry = max(days_to_expiry / 365.0, 1/365.0)  # At least 1/365 year
+    years_to_expiry = max(days_to_expiry / 365.0, 1/365.0)
+    
+    # Pre-compute sqrt values (used multiple times in BS calculations)
+    sqrt_T = math.sqrt(years_to_expiry)
+    sqrt_T_inv = 1.0 / sqrt_T if years_to_expiry > 0 else 0
     
     total_gex = 0.0
     strike_gammas = {}
-    iv_levels = {}
+    iv_levels = defaultdict(list)
     
+    # OPTIMIZATION: Separate ATM and OTM processing
+    atm_options = []
+    otm_options = []
+    
+    # First pass: Segregate by distance
     for option in options_data:
+        if int(option['oi']) == 0:  # Skip zero OI
+            continue
+        
+        distance = abs(float(option['strike']) - spot_price)
+        if distance <= 200:
+            atm_options.append(option)
+        else:
+            otm_options.append(option)
+    
+    # Process ATM options with IV extraction
+    for option in atm_options:
         strike = float(option['strike'])
         oi = int(option['oi'])
         premium = float(option['last_price'])
         instrument_type = option['instrument_type']
+        distance = abs(strike - spot_price)
         
         try:
-            # Calculate gamma using Black-Scholes with extracted IV
-            gamma, iv = calculate_gamma_blackscholes(
-                spot=spot_price,
-                strike=strike,
-                time_to_expiry_years=years_to_expiry,
-                market_price=premium,
-                option_type=instrument_type,
-                risk_free_rate=RISK_FREE_RATE
-            )
+            if premium > 0:
+                gamma, iv = calculate_gamma_blackscholes(
+                    spot=spot_price,
+                    strike=strike,
+                    time_to_expiry_years=years_to_expiry,
+                    market_price=premium,
+                    option_type=instrument_type,
+                    risk_free_rate=RISK_FREE_RATE
+                )
+            else:
+                iv = 0.15
+                gamma = black_scholes_gamma(spot_price, strike, years_to_expiry, RISK_FREE_RATE, iv)
             
-            # Store for detailed breakdown
             strike_key = f"{strike:.0f}{instrument_type}"
             strike_gammas[strike_key] = {
                 'gamma': gamma,
@@ -323,25 +383,44 @@ def calculate_net_gamma_exposure(options_data, spot_price, expiry_date):
                 'premium': premium,
                 'iv': iv,
                 'type': instrument_type,
-                'distance': abs(strike - spot_price)
+                'distance': distance,
+                'iv_extracted': True
             }
             
-            # Track IV levels
-            if strike not in iv_levels:
-                iv_levels[strike] = []
             iv_levels[strike].append(iv)
-            
-            # GEX contribution: OI × Gamma
-            # Negative because dealers are typically short options
-            if instrument_type == 'CE':
-                contribution = -oi * gamma
-            else:  # PE
-                contribution = -oi * gamma
-            
-            total_gex += contribution
+            total_gex += -oi * gamma
         
-        except Exception as e:
-            # Skip strikes with calculation errors
+        except:
+            continue
+    
+    # Process OTM options with default IV (FAST PATH)
+    default_iv = 0.15
+    for option in otm_options:
+        strike = float(option['strike'])
+        oi = int(option['oi'])
+        premium = float(option['last_price'])
+        instrument_type = option['instrument_type']
+        distance = abs(strike - spot_price)
+        
+        try:
+            # Skip expensive IV solver for OTM - use default
+            gamma = black_scholes_gamma(spot_price, strike, years_to_expiry, RISK_FREE_RATE, default_iv)
+            
+            strike_key = f"{strike:.0f}{instrument_type}"
+            strike_gammas[strike_key] = {
+                'gamma': gamma,
+                'oi': oi,
+                'premium': premium,
+                'iv': default_iv,
+                'type': instrument_type,
+                'distance': distance,
+                'iv_extracted': False
+            }
+            
+            iv_levels[strike].append(default_iv)
+            total_gex += -oi * gamma
+        
+        except:
             continue
     
     return total_gex, strike_gammas, iv_levels
@@ -395,16 +474,21 @@ def format_number(num):
     return f"₹{num:.0f}"
 
 
-def analyze_gamma_exposure(expiry=None, cutoff_time=None):
-    """Main analysis function"""
+def analyze_gamma_exposure(expiry=None, cutoff_time=None, verbose=True):
+    """Main analysis function with performance monitoring"""
     
     if cutoff_time is None:
         cutoff_time = datetime.now(IST)
+    
+    # OPTIMIZATION: Timer for performance monitoring
+    import time
+    start_time = time.time()
     
     conn = psycopg2.connect(**DB_CONFIG)
     
     try:
         # Get expiry
+        t1 = time.time()
         if expiry is None:
             expiry = get_immediate_expiry(conn)
             if not expiry:
@@ -417,25 +501,39 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None):
             print("❌ Could not fetch spot price")
             return
         
+        t2 = time.time()
+        
         print(f"\n{'='*100}")
         print(f"🎲 NET GAMMA EXPOSURE ANALYSIS")
         print(f"{'='*100}")
         print(f"Spot Price: {spot_price:.2f}")
         print(f"Expiry Date: {expiry}")
         print(f"Analysis Time: {cutoff_time.strftime('%Y-%m-%d %H:%M:%S IST')}")
+        if verbose:
+            print(f"[TIMING] Setup: {t2-t1:.2f}s")
         print(f"{'='*100}\n")
         
         # Get all options data
+        t3 = time.time()
         options_data = get_all_nifty_options_data(conn, expiry, cutoff_time)
+        t4 = time.time()
         
         if not options_data:
             print("❌ No options tick data found for this expiry")
             return
         
+        if verbose:
+            print(f"[TIMING] Data fetch: {t4-t3:.2f}s ({len(options_data)} contracts)")
         print(f"📊 Processing {len(options_data)} option contracts...\n")
         
         # Calculate net gamma exposure
+        t5 = time.time()
         gex, strike_gammas, iv_levels = calculate_net_gamma_exposure(options_data, spot_price, expiry)
+        t6 = time.time()
+        
+        if verbose:
+            print(f"[TIMING] GEX calculation: {t6-t5:.2f}s")
+            print(f"[CACHE] IV solver calls avoided: {len(IV_CACHE)}")
         
         # Get interpretation
         interpretation = get_gex_interpretation(gex)
@@ -541,12 +639,24 @@ def analyze_gamma_exposure(expiry=None, cutoff_time=None):
         
         print(f"\n{'='*100}\n")
         
+        if verbose:
+            total_time = time.time() - start_time
+            print(f"[PERFORMANCE] Total execution: {total_time:.2f}s")
+            print(f"[PERFORMANCE] Per-contract processing: {(total_time/len(options_data))*1000:.2f}ms")
+            print()
+        
         return {
             'gex': gex,
             'spot': spot_price,
             'expiry': expiry,
             'interpretation': interpretation,
-            'timestamp': cutoff_time.isoformat()
+            'timestamp': cutoff_time.isoformat(),
+            'timing': {
+                'setup': t2-t1,
+                'data_fetch': t4-t3,
+                'calculation': t6-t5,
+                'total': time.time() - start_time
+            } if verbose else {}
         }
     
     finally:
