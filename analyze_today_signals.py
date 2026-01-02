@@ -94,7 +94,66 @@ def analyze_level_lifecycle(signals):
     return level_history
 
 
-def find_pressure_threshold_crossings(signals):
+def validate_threshold_signals(signals):
+    """Validate if price actually reverses at threshold crossings"""
+    crossings = find_pressure_threshold_crossings(signals)
+    
+    if not crossings:
+        return []
+    
+    # Get price data after each crossing
+    signal_list = list(signals)
+    validated = []
+    
+    for i, crossing in enumerate(crossings):
+        crossing_time = crossing['time']
+        crossing_price = crossing['price']
+        
+        # Find the signal in the full list
+        signal_idx = None
+        for j, sig in enumerate(signal_list):
+            if sig['time'].astimezone(IST) == crossing_time:
+                signal_idx = j
+                break
+        
+        if signal_idx is None or signal_idx >= len(signal_list) - 10:
+            continue
+        
+        # Get prices for next 10 signals (~33 seconds forward)
+        future_prices = [float(signal_list[signal_idx + k]['current_price']) 
+                        for k in range(1, min(11, len(signal_list) - signal_idx))]
+        
+        if not future_prices:
+            continue
+        
+        max_future = max(future_prices)
+        min_future = min(future_prices)
+        final_future = future_prices[-1]
+        
+        # Determine if signal was correct
+        if crossing['type'] == 'bearish_breakout':
+            # Bearish signal should have price go down
+            signal_worked = final_future < crossing_price
+            move = final_future - crossing_price
+        else:  # bullish_breakout
+            # Bullish signal should have price go up
+            signal_worked = final_future > crossing_price
+            move = final_future - crossing_price
+        
+        validated.append({
+            **crossing,
+            'price_low_after': min_future,
+            'price_high_after': max_future,
+            'price_final': final_future,
+            'price_move_after': move,
+            'signal_correct': signal_worked,
+            'signal_idx': signal_idx
+        })
+    
+    return validated
+
+
+
     """Find price levels where 30s pressure crosses ±0.3 thresholds"""
     crossings = []
     prev_pressure_30s = None
@@ -347,36 +406,48 @@ def print_report(signals):
     print("🎯 PRESSURE THRESHOLD CROSSINGS (30s pressure ±0.3)")
     print("="*80)
     
-    crossings = find_pressure_threshold_crossings(signals)
+    validated_crossings = validate_threshold_signals(signals)
     
-    if crossings:
-        print(f"\nDetected {len(crossings)} threshold crossings:\n")
-        print(f"{'Time':<10} {'Type':<20} {'Price Level':<14} {'Pressure 30s':<14}")
-        print("-"*60)
+    if validated_crossings:
+        print(f"\nDetected {len(validated_crossings)} threshold crossings (with validation):\n")
+        print(f"{'Time':<10} {'Type':<20} {'Price Level':<14} {'Price After 30s':<16} {'Result':<12}")
+        print("-"*75)
         
-        for crossing in crossings:
+        for crossing in validated_crossings:
             icon = "🟢" if crossing['type'] == 'bullish_breakout' else "🔴"
             crossing_type = crossing['direction']
-            print(f"{crossing['time'].strftime('%H:%M:%S'):<10} {icon} {crossing_type:<18} ₹{crossing['price']:<13.2f} {crossing['pressure']:+.3f}")
+            result_icon = "✅" if crossing['signal_correct'] else "❌"
+            result = f"{result_icon} {crossing['price_move_after']:+.2f}"
+            
+            print(f"{crossing['time'].strftime('%H:%M:%S'):<10} {icon} {crossing_type:<18} ₹{crossing['price']:<13.2f} ₹{crossing['price_final']:<15.2f} {result:<12}")
         
-        # Group by type
-        bullish_crossings = [c for c in crossings if c['type'] == 'bullish_breakout']
-        bearish_crossings = [c for c in crossings if c['type'] == 'bearish_breakout']
+        # Group by type and validate
+        bullish_crossings = [c for c in validated_crossings if c['type'] == 'bullish_breakout']
+        bearish_crossings = [c for c in validated_crossings if c['type'] == 'bearish_breakout']
         
-        print(f"\n📊 Summary:")
-        print(f"   🟢 Bullish Threshold Breaches: {len(bullish_crossings)}")
+        print(f"\n📊 Signal Validation Summary:")
+        
+        if bullish_crossings:
+            bullish_correct = sum(1 for c in bullish_crossings if c['signal_correct'])
+            bullish_accuracy = (bullish_correct / len(bullish_crossings)) * 100 if bullish_crossings else 0
+            print(f"   🟢 Bullish Signals: {len(bullish_crossings)} total, {bullish_correct} correct ({bullish_accuracy:.0f}% accuracy)")
+            print(f"      Average price move after signal: {sum(c['price_move_after'] for c in bullish_crossings) / len(bullish_crossings):+.2f}")
+        
+        if bearish_crossings:
+            bearish_correct = sum(1 for c in bearish_crossings if c['signal_correct'])
+            bearish_accuracy = (bearish_correct / len(bearish_crossings)) * 100 if bearish_crossings else 0
+            print(f"   🔴 Bearish Signals: {len(bearish_crossings)} total, {bearish_correct} correct ({bearish_accuracy:.0f}% accuracy)")
+            print(f"      Average price move after signal: {sum(c['price_move_after'] for c in bearish_crossings) / len(bearish_crossings):+.2f}")
+        
+        # Level ranges
+        print(f"\n📍 Level Ranges:")
         if bullish_crossings:
             prices = [c['price'] for c in bullish_crossings]
-            print(f"      Prices: {', '.join([f'₹{p:.2f}' for p in prices])}")
-            print(f"      Support Level (lowest): ₹{min(prices):.2f}")
-            print(f"      Resistance Level (highest): ₹{max(prices):.2f}")
+            print(f"   🟢 Bullish Prices: {', '.join([f'₹{p:.2f}' for p in sorted(prices)])}")
         
-        print(f"\n   🔴 Bearish Threshold Breaches: {len(bearish_crossings)}")
         if bearish_crossings:
             prices = [c['price'] for c in bearish_crossings]
-            print(f"      Prices: {', '.join([f'₹{p:.2f}' for p in prices])}")
-            print(f"      Support Level (lowest): ₹{min(prices):.2f}")
-            print(f"      Resistance Level (highest): ₹{max(prices):.2f}")
+            print(f"   🔴 Bearish Prices: {', '.join([f'₹{p:.2f}' for p in sorted(prices)])}")
     else:
         print("\n   No threshold crossings detected")
     
